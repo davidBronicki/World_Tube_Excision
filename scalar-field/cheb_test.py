@@ -54,7 +54,7 @@ class ModalRepresentation:
 	
 	__rmul__ = __mul__
 	
-	def __div__(self, scalar):
+	def __truediv__(self, scalar):
 		return ModalRepresentation(self.chebEngine, self.data / scalar)
 
 	def __add__(self, other):
@@ -71,7 +71,7 @@ class SpectralRepresentation:
 	def __mul__(self, scalar):
 		return SpectralRepresentation(self.chebEngine, self.data * scalar)
 	
-	def __div__(self, scalar):
+	def __truediv__(self, scalar):
 		return SpectralRepresentation(self.chebEngine, self.data / scalar)
 
 	def __add__(self, other):
@@ -153,11 +153,12 @@ def scalarFieldTest():
 
 	N = 15
 
-	xData = np.arange(-1., 1., 0.1)
-	tData = np.arange(0, 1.3, 0.02)
+	xData = np.arange(-1., 1., 0.05)
+	tData = np.arange(0, 3.0, 0.05)
+	# tData = np.arange(0, 0.3, 0.005)
 
 	def initialPhi(x):
-		return np.sin(x * 4)
+		return np.sin(x * np.pi*2)
 	def initialPi(x):
 		return 0
 
@@ -170,21 +171,74 @@ def scalarFieldTest():
 	gammaSpectral = spectralDerivative(phiSpectral)
 	gammaModal = spectralToModal(gammaSpectral)
 
-	state = np.resize(np.array([phiSpectral.data, piSpectral.data, gammaSpectral.data]),(3 * N + 3, ))
+	state = np.resize(np.array(
+		[phiModal.data, piModal.data, gammaModal.data]),(3 * N + 3, ))
 
 	# print(state)
 
 	def stateDot(time, state):
 		state = np.resize(state, (3, N + 1))
-		phiSpec = SpectralRepresentation(chebEngine, state[0])
-		piSpec = SpectralRepresentation(chebEngine, state[1])
-		gammaSpec = SpectralRepresentation(chebEngine, state[2])
+		phiModal = ModalRepresentation(chebEngine, state[0])
+		piModal = ModalRepresentation(chebEngine, state[1])
+		gammaModal = ModalRepresentation(chebEngine, state[2])
 
-		phiDot = piSpec
-		piDot = spectralDerivative(gammaSpec)
-		gammaDot = spectralDerivative(piSpec)
+		# rightBound = (piModal - gammaModal) / 2
+		# leftBound = (piModal + gammaModal) / 2
 
-		return np.resize(np.array([phiDot.data, piDot.data, gammaDot.data]), (3 * N + 3, ))
+
+		rightBoundaryEntering = (piModal.data[-1] + gammaModal.data[-1]) / 2
+		rightBoundaryExiting = (piModal.data[-1] - gammaModal.data[-1]) / 2
+		leftBoundaryEntering = (piModal.data[0] - gammaModal.data[0]) / 2
+		leftBoundaryExiting = (piModal.data[0] + gammaModal.data[0]) / 2
+
+		print(np.array([rightBoundaryEntering,
+			rightBoundaryExiting,
+			leftBoundaryEntering,
+			leftBoundaryExiting]))
+
+		phiDot = piModal
+		# phiDot.data[0] = -phiModal.data[0]
+		# phiDot.data[-1] = -phiModal.data[-1]
+		# phiDot.data[0] = 0
+		# phiDot.data[-1] = 0
+		piDot = spectralToModal(spectralDerivative(
+			modalToSpectral(gammaModal)))
+		gammaDot = spectralToModal(spectralDerivative(
+			modalToSpectral(piModal)))
+
+		# rightBoundDot = (piDot - gammaDot) / 2
+		# leftBoundDot = (piDot + gammaDot) / 2
+
+		piDot.data[-1] = (piDot.data[-1] - gammaDot.data[-1]) / 2
+		# piDot.data[-1] += 10 * rightBoundaryEntering
+		gammaDot.data[-1] = -piDot.data[-1]
+
+		piDot.data[-1] -= 10 * rightBoundaryEntering
+		gammaDot.data[-1] -= 10 * rightBoundaryEntering
+
+		piDot.data[0] = (piDot.data[0] + gammaDot.data[0]) / 2
+		# piDot.data[0] += 10 * leftBoundaryEntering
+		gammaDot.data[0] = piDot.data[0]
+
+		piDot.data[0] -= 10 * leftBoundaryEntering
+		gammaDot.data[0] += 10 * leftBoundaryEntering
+
+		# piDot.data[-1] = (piDot.data[-1] + gammaDot.data[-1]) / 2
+		# # piDot.data[-1] += 3.0 * rightBoundaryExiting
+		# gammaDot.data[-1] = piDot.data[-1]
+
+		# piDot.data[-1] -= rightBoundaryExiting
+		# gammaDot.data[-1] += rightBoundaryExiting
+
+		# piDot.data[0] = (piDot.data[0] - gammaDot.data[0]) / 2
+		# # piDot.data[0] += 3.0 * leftBoundaryExiting
+		# gammaDot.data[0] = -piDot.data[0]
+
+		# piDot.data[0] -= leftBoundaryExiting
+		# gammaDot.data[0] -= leftBoundaryExiting
+
+		return np.resize(np.array(
+			[phiDot.data, piDot.data, gammaDot.data]), (3 * N + 3, ))
 
 	solutionSet = scipy.integrate.solve_ivp(
 		stateDot, [tData[0], tData[-1]], state, t_eval=tData)
@@ -195,8 +249,8 @@ def scalarFieldTest():
 	for i in range(len(yDataSet)):
 		yData = yDataSet[i]
 		yData = np.reshape(yData, (3, N + 1))
-		phiData = SpectralRepresentation(chebEngine, yData[0])
-		phiFunct = spectralToFunction(phiData)
+		phiData = ModalRepresentation(chebEngine, yData[0])
+		phiFunct = spectralToFunction(modalToSpectral(phiData))
 		yData = np.zeros(len(xData))
 		for j in range(len(xData)):
 			yData[j] = phiFunct(xData[j])
@@ -210,8 +264,11 @@ def scalarFieldTest():
 		minVal = min(minVal, min(yData))
 
 	fig = plt.figure(figsize=(5, 4))
-	ax = fig.add_subplot(autoscale_on=False, xlim=(-1., 1.), ylim=(minVal-0.01, maxVal+0.01))
-	ax.set_aspect('equal')
+	ax = fig.add_subplot(
+		autoscale_on=False,
+		xlim=(-1., 1.),
+		ylim=(minVal-0.01, maxVal+0.01))
+	# ax.set_aspect('equal')
 	ax.grid()
 	graph, = ax.plot([],[])
 
@@ -221,7 +278,7 @@ def scalarFieldTest():
 		return graph
 	
 	ani = animation.FuncAnimation(
-		fig, animate, len(tData), interval = (tData[-1] - tData[0])*100
+		fig, animate, len(tData), interval = 60#(tData[-1] - tData[0])*30
 	)
 	plt.show()
 
