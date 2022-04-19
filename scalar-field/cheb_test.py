@@ -1,10 +1,9 @@
 import numpy as np
-from numpy import ndarray
-import scipy
+import scipy.integrate
+import scipy.fft
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from typing import Callable
-
-from sympy import chebyshevt
 
 class ChebEngine:
 	def __init__(self, order: int):
@@ -148,8 +147,83 @@ def modalDifferentialOperator(chebEngine: ChebEngine) -> np.ndarray:
 	operatorMatrix = np.transpose(operatorMatrix)
 	return operatorMatrix
 
-# def harmonicSolveTest(N: int, omega = 10, b = 3):
-# 	chebEngine = ChebEngine(N)
+###--------------------------tests---------------------------------###
+
+def scalarFieldTest():
+
+	N = 15
+
+	xData = np.arange(-1., 1., 0.1)
+	tData = np.arange(0, 1.3, 0.02)
+
+	def initialPhi(x):
+		return np.sin(x * 4)
+	def initialPi(x):
+		return 0
+
+	chebEngine = ChebEngine(N)
+
+	phiModal = functionToModal(initialPhi, chebEngine)
+	phiSpectral = modalToSpectral(phiModal)
+	piModal = functionToModal(initialPi, chebEngine)
+	piSpectral = modalToSpectral(piModal)
+	gammaSpectral = spectralDerivative(phiSpectral)
+	gammaModal = spectralToModal(gammaSpectral)
+
+	state = np.resize(np.array([phiSpectral.data, piSpectral.data, gammaSpectral.data]),(3 * N + 3, ))
+
+	# print(state)
+
+	def stateDot(time, state):
+		state = np.resize(state, (3, N + 1))
+		phiSpec = SpectralRepresentation(chebEngine, state[0])
+		piSpec = SpectralRepresentation(chebEngine, state[1])
+		gammaSpec = SpectralRepresentation(chebEngine, state[2])
+
+		phiDot = piSpec
+		piDot = spectralDerivative(gammaSpec)
+		gammaDot = spectralDerivative(piSpec)
+
+		return np.resize(np.array([phiDot.data, piDot.data, gammaDot.data]), (3 * N + 3, ))
+
+	solutionSet = scipy.integrate.solve_ivp(
+		stateDot, [tData[0], tData[-1]], state, t_eval=tData)
+
+	tData = solutionSet.t
+	yDataSet = list(np.transpose(solutionSet.y))
+
+	for i in range(len(yDataSet)):
+		yData = yDataSet[i]
+		yData = np.reshape(yData, (3, N + 1))
+		phiData = SpectralRepresentation(chebEngine, yData[0])
+		phiFunct = spectralToFunction(phiData)
+		yData = np.zeros(len(xData))
+		for j in range(len(xData)):
+			yData[j] = phiFunct(xData[j])
+		yDataSet[i] = yData
+
+	maxVal = -1000.
+	minVal = 1000.
+
+	for yData in yDataSet:
+		maxVal = max(maxVal, max(yData))
+		minVal = min(minVal, min(yData))
+
+	fig = plt.figure(figsize=(5, 4))
+	ax = fig.add_subplot(autoscale_on=False, xlim=(-1., 1.), ylim=(minVal-0.01, maxVal+0.01))
+	ax.set_aspect('equal')
+	ax.grid()
+	graph, = ax.plot([],[])
+
+	def animate(i):
+		yData = yDataSet[i]
+		graph.set_data(xData, yData)
+		return graph
+	
+	ani = animation.FuncAnimation(
+		fig, animate, len(tData), interval = (tData[-1] - tData[0])*100
+	)
+	plt.show()
 
 def nonLinearSolveTest(N: int, a = 1.0):
 	#trying to solve (y')^2=a y, y(0)=1  -->  y(x)=x^2/4+ax+a^2
@@ -291,7 +365,7 @@ def basicTest(N, a = 5.0):
 	plt.plot(xList, approxYList)
 	plt.show()
 
-
-nonLinearSolveTest(10)
+scalarFieldTest()
+# nonLinearSolveTest(10)
 # linearSolveTest(10)
 # basicTest(10)
