@@ -46,6 +46,24 @@ class ModalRepresentation:
 		self.chebEngine = chebEngine
 		self.data = data
 	
+	def left(self):
+		return self.data[-1]
+	
+	def setLeft(self, value):
+		self.data[-1] = value
+	
+	def right(self):
+		return self.data[0]
+	
+	def setRight(self, value):
+		self.data[0] = value
+
+	def __getitem__(self, n):
+		return self.data[n]
+	
+	def __setitem__(self, n, value):
+		self.data[n] = value
+	
 	def __mul__(self, other):
 		if type(other) == ModalRepresentation:
 			return ModalRepresentation(self.chebEngine, self.data * other.data)
@@ -67,7 +85,13 @@ class SpectralRepresentation:
 	def __init__(self, chebEngine: ChebEngine, data: np.ndarray):
 		self.chebEngine = chebEngine
 		self.data = data
+
+	def __getitem__(self, n):
+		return self.data[n]
 	
+	def __setitem__(self, n, value):
+		self.data[n] = value
+
 	def __mul__(self, scalar):
 		return SpectralRepresentation(self.chebEngine, self.data * scalar)
 	
@@ -100,8 +124,6 @@ def spectralToModal(specRep: SpectralRepresentation) -> ModalRepresentation:
 	specRep.data[0] *= 2
 	specRep.data[N] *= 2
 	modalData = scipy.fft.dct(specRep.data, type=1) / 2
-	specRep.data[0] /= 2
-	specRep.data[N] /= 2
 	return ModalRepresentation(specRep.chebEngine, modalData)
 
 def spectralToFunction(specRep: SpectralRepresentation, x0 = -1.0, x1 = 1.0) -> Callable[[float],float]:
@@ -153,13 +175,13 @@ def scalarFieldTest():
 
 	N = 15
 
-	xData = np.arange(-1., 1., 0.05)
+	xData = np.arange(-1., 1., 0.02)
 	tData = np.arange(0, 3.0, 0.05)
 	# tData = np.arange(0, 0.15, 0.005)
 
 	def initialPhi(x):
 		# return np.cos(x * np.pi*2)
-		return np.sin(x * np.pi * 5 /2)
+		return np.sin(x * np.pi * 3/2)
 	def initialPi(x):
 		return 0
 
@@ -184,23 +206,48 @@ def scalarFieldTest():
 	leftFlowRemovalProjection = np.identity(3) - leftFlowProjection
 	rightFlowRemovalProjection = np.identity(3) - rightFlowProjection
 	
+	def leftBoundaryInflow(time):
+		return 0
+	
+	def leftBoundaryInflowDot(time):
+		return 0
+
+	def rightBoundaryInflow(time):
+		return 0
+	
+	def rightBoundaryInflowDot(time):
+		return 0
+
 	def stateDot(time, state):
-		state = np.resize(state, (3, N + 1))
+		state = np.reshape(state, (3, N + 1))
 		phiModal = ModalRepresentation(chebEngine, state[0])
 		piModal = ModalRepresentation(chebEngine, state[1])
 		gammaModal = ModalRepresentation(chebEngine, state[2])
 
-		# rightBound = (piModal - gammaModal) / 2
-		# leftBound = (piModal + gammaModal) / 2
+		rightBoundaryState = np.array([
+			phiModal.right(),
+			piModal.right(),
+			gammaModal.right()])
+		leftBoundaryState = np.array([
+			phiModal.left(),
+			piModal.left(),
+			gammaModal.left()])
 
-		# rightBoundaryState = np.array([phiModal[0], piModal[0], gammaModal[0]])
-		# leftBoundaryState = np.array([phiModal[-1], piModal[-1], gammaModal[-1]])
+		correctedRightBoundary = leftFlowRemovalProjection.dot(
+			rightBoundaryState) + rightBoundaryInflow(time) * leftFlowVector
+		correctedLeftBoundary = rightFlowRemovalProjection.dot(
+			leftBoundaryState) + leftBoundaryInflow(time) * rightFlowVector
 
+		rightBoundaryEntering = leftFlowVector.dot(rightBoundaryState)
+		leftBoundaryEntering = rightFlowVector.dot(leftBoundaryState)
 
-		leftBoundaryEntering = (piModal.data[-1] + gammaModal.data[-1]) / 2
-		leftBoundaryExiting = (piModal.data[-1] - gammaModal.data[-1]) / 2
-		rightBoundaryEntering = (piModal.data[0] - gammaModal.data[0]) / 2
-		rightBoundaryExiting = (piModal.data[0] + gammaModal.data[0]) / 2
+		phiModal.setRight(correctedRightBoundary[0])
+		piModal.setRight(correctedRightBoundary[1])
+		gammaModal.setRight(correctedRightBoundary[2])
+
+		phiModal.setLeft(correctedLeftBoundary[0])
+		piModal.setLeft(correctedLeftBoundary[1])
+		gammaModal.setLeft(correctedLeftBoundary[2])
 
 		phiDot = piModal
 		piDot = spectralToModal(spectralDerivative(
@@ -208,19 +255,34 @@ def scalarFieldTest():
 		gammaDot = spectralToModal(spectralDerivative(
 			modalToSpectral(piModal)))
 
-		# rightBoundaryDot = leftFlowRemovalProjection
 
-		piDot.data[-1] = (piDot.data[-1] + gammaDot.data[-1]) / 2
-		gammaDot.data[-1] = piDot.data[-1]
+		rightBoundaryStateDot = np.array([
+			phiDot.right(),
+			piDot.right(),
+			gammaDot.right()])
+		leftBoundaryStateDot = np.array([
+			phiDot.left(),
+			piDot.left(),
+			gammaDot.left()])
 
-		piDot.data[-1] -= leftBoundaryExiting
-		gammaDot.data[-1] += leftBoundaryExiting
+		correctedRightBoundary = leftFlowRemovalProjection.dot(#remove inflow
+			rightBoundaryStateDot) + leftFlowVector * (
+				rightBoundaryInflowDot(time) - (#maintain good boundary
+					rightBoundaryEntering - rightBoundaryInflow(time)#error decay
+				))
+		correctedLeftBoundary = rightFlowRemovalProjection.dot(
+			leftBoundaryStateDot) + rightFlowVector * (
+				leftBoundaryInflowDot(time) - (
+					leftBoundaryEntering - leftBoundaryInflow(time)
+				))
 
-		piDot.data[0] = (piDot.data[0] - gammaDot.data[0]) / 2
-		gammaDot.data[0] = -piDot.data[0]
+		phiDot.setRight(correctedRightBoundary[0])
+		piDot.setRight(correctedRightBoundary[1])
+		gammaDot.setRight(correctedRightBoundary[2])
 
-		piDot.data[0] -= rightBoundaryExiting
-		gammaDot.data[0] -= rightBoundaryExiting
+		phiDot.setLeft(correctedLeftBoundary[0])
+		piDot.setLeft(correctedLeftBoundary[1])
+		gammaDot.setLeft(correctedLeftBoundary[2])
 
 		return np.resize(np.array(
 			[phiDot.data, piDot.data, gammaDot.data]), (3 * N + 3, ))
@@ -251,22 +313,14 @@ def scalarFieldTest():
 			piDataSet[-1][j] = piFunct(xData[j])
 			gammaDataSet[-1][j] = gammaFunct(xData[j])
 
-	# for i in range(len(phiDataSet)):
-	# 	yData = phiDataSet[i]
-	# 	yData = np.reshape(yData, (3, N + 1))
-	# 	phiData = ModalRepresentation(chebEngine, yData[0])
-	# 	phiFunct = spectralToFunction(modalToSpectral(phiData))
-	# 	yData = np.zeros(len(xData))
-	# 	for j in range(len(xData)):
-	# 		yData[j] = phiFunct(xData[j])
-	# 	phiDataSet[i] = yData
-
 	maxVal = -1000.
 	minVal = 1000.
 
 	for phiData, piData, gammaData in zip(phiDataSet, piDataSet, gammaDataSet):
-		maxVal = max(maxVal, max(phiData), max(piData), max(gammaData))
-		minVal = min(minVal, min(phiData), min(piData), min(gammaData))
+		# maxVal = max(maxVal, max(phiData), max(piData), max(gammaData))
+		# minVal = min(minVal, min(phiData), min(piData), min(gammaData))
+		maxVal = max(maxVal, max(phiData))
+		minVal = min(minVal, min(phiData))
 
 	fig = plt.figure(figsize=(5, 4))
 	ax = fig.add_subplot(
@@ -282,9 +336,10 @@ def scalarFieldTest():
 
 	def animate(i):
 		phiGraph.set_data(xData, phiDataSet[i])
-		piGraph.set_data(xData, piDataSet[i])
-		gammaGraph.set_data(xData, gammaDataSet[i])
-		return phiGraph, piGraph, gammaGraph
+		# piGraph.set_data(xData, piDataSet[i])
+		# gammaGraph.set_data(xData, gammaDataSet[i])
+		# return phiGraph, piGraph, gammaGraph
+		return phiGraph
 	
 	ani = animation.FuncAnimation(
 		fig, animate, len(tData), interval = 120#(tData[-1] - tData[0])*30
