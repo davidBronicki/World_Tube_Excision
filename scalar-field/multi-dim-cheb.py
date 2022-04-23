@@ -119,6 +119,9 @@ class ModalRepresentation:
 	def __sub__(self, other: 'ModalRepresentation'):
 		return ModalRepresentation(self.chebEngines, self.data - other.data)
 
+	def __neg__(self):
+		return ModalRepresentation(self.chebEngines, -self.data)
+
 def functionToModal(funct: Callable[[np.ndarray],float], chebEngines: List[ChebEngine]) -> ModalRepresentation:
 	N = len(chebEngines)
 	shape = []
@@ -219,6 +222,443 @@ def modalToFunction(modal: ModalRepresentation) -> Callable[[np.ndarray, Union[N
 	
 	return outputFunct
 
+def em_2D(
+	N = 8,
+	animationDuration = 2.,
+	simDuration = 3.0,
+	dt = 0.1,
+	display_dx = 0.1):
+
+	t0 = time.time()
+
+	xData = np.arange(-1., 1. + display_dx / 2, display_dx)
+	yData = np.arange(-1., 1. + display_dx / 2, display_dx)
+	meshX, meshY = np.meshgrid(xData, yData)
+	tData = np.arange(0, simDuration, dt)
+
+	a = 12
+	b = 0.05
+	A = 100
+
+	def initialE(x):
+		# mask = min((1 - abs(x[0])) * (1 - abs(x[1])), 0.1) * 10
+		# r = np.sqrt(x[0]**2 + x[1]**2)
+		# return A*r**2 * np.exp(-a * (r - b)) * mask
+		return np.array([0., 0.])
+		# return np.sin(x[0] * np.pi * 2) * np.sin(x[1] * np.pi * 1)
+	def initialA(x):
+		# mask = min((1 - abs(x[0])) * (1 - abs(x[1])), 0.1) * 10
+		# r = np.sqrt(x[0]**2 + x[1]**2)
+		# return -(2 * A * r * np.exp(-a * (r - b)) * mask - a * A * r**2 * np.exp(-a * (r - b)) * mask)
+		return np.array([0., 0.])
+
+	def bump(x, x0, width):
+		r = (x - x0) / width * np.pi / 2
+		r = np.sqrt(np.dot(r, r))
+		return np.cos(r)**2 if r < (np.pi / 2) else 0
+
+	def chargeDensity(x, t):
+		width = 0.3
+		amplitude = 0.1
+		amplitude /= width**2
+		sourceLocation = np.array([0., 0.])
+		return bump(x, sourceLocation, width) * amplitude
+
+		# return 5 * np.sin(x[0] * np.pi) * np.sin(x[1] * np.pi)
+
+	chebEngine = ChebEngine(N)
+	engines = [chebEngine, chebEngine]
+
+	initE_x = functionToModal(lambda x: initialE(x)[0], engines)
+	initE_y = functionToModal(lambda x: initialE(x)[1], engines)
+	initA_x = functionToModal(lambda x: initialA(x)[0], engines)
+	initA_y = functionToModal(lambda x: initialA(x)[1], engines)
+	initGamma_xx = gradientComponent(initA_x, 0)
+	initGamma_yx = gradientComponent(initA_x, 1)
+	initGamma_xy = gradientComponent(initA_y, 0)
+	initGamma_yy = gradientComponent(initA_y, 1)
+
+	initState = np.array([
+		initE_x.data,
+		initE_y.data,
+		initA_x.data,
+		initA_y.data,
+		initGamma_xx.data,
+		initGamma_yy.data,
+		initGamma_xy.data,
+		initGamma_yx.data
+	])
+	initState = np.reshape(initState, (8 * (N + 1)**2,))
+
+	#e_x, e_y, gamma_yy, gamma_xy
+	xAxis_xLeft = np.array([1., 0., 1., 0.]) / np.sqrt(2.)
+	xAxis_xRight = np.array([1., 0., -1., 0.]) / np.sqrt(2.)
+	xAxis_yRight = np.array([0., 1., 0., 1.]) / np.sqrt(2.)
+	xAxis_yLeft = np.array([0., 1., 0., -1.]) / np.sqrt(2.)
+
+	#e_x, e_y, gamma_xx, gamma_yx
+	yAxis_xRight = np.array([1., 0., 0., 1.]) / np.sqrt(2.)
+	yAxis_xLeft = np.array([1., 0., 0., -1.]) / np.sqrt(2.)
+	yAxis_yLeft = np.array([0., 1., 1., 0.]) / np.sqrt(2.)
+	yAxis_yRight = np.array([0., 1., -1., 0.]) / np.sqrt(2.)
+
+	def stateDot(time, state):
+		state = np.reshape(state, (8, N + 1, N + 1))
+		e_x = ModalRepresentation(engines, state[0])
+		e_y = ModalRepresentation(engines, state[1])
+		a_x = ModalRepresentation(engines, state[2])
+		a_y = ModalRepresentation(engines, state[3])
+		gamma_xx = ModalRepresentation(engines, state[4])
+		gamma_yy = ModalRepresentation(engines, state[5])
+		gamma_xy = ModalRepresentation(engines, state[6])
+		gamma_yx = ModalRepresentation(engines, state[7])
+
+
+		#x axis boundaries
+		#e_x, e_y, gamma_yy, gamma_xy
+		boundaryState = np.array([
+			e_x.getLeftBoundary(0).data,
+			e_y.getLeftBoundary(0).data,
+			gamma_yy.getLeftBoundary(0).data,
+			gamma_xy.getLeftBoundary(0).data
+		])
+		xAxis_inLeft_x = np.tensordot(
+			xAxis_xRight,
+			boundaryState,
+			(0, 0))
+		xAxis_inLeft_y = np.tensordot(
+			xAxis_yRight,
+			boundaryState,
+			(0, 0))
+		boundaryState -= np.outer(xAxis_xRight, xAxis_inLeft_x)
+		boundaryState -= np.outer(xAxis_yRight, xAxis_inLeft_y)
+
+		e_x.setLeftBoundary(0, ModalRepresentation(
+			[chebEngine], boundaryState[0]))
+		e_y.setLeftBoundary(0, ModalRepresentation(
+			[chebEngine], boundaryState[1]))
+		gamma_yy.setLeftBoundary(0, ModalRepresentation(
+			[chebEngine], boundaryState[2]))
+		gamma_xy.setLeftBoundary(0, ModalRepresentation(
+			[chebEngine], boundaryState[3]))
+
+
+		boundaryState = np.array([
+			e_x.getRightBoundary(0).data,
+			e_y.getRightBoundary(0).data,
+			gamma_yy.getRightBoundary(0).data,
+			gamma_xy.getRightBoundary(0).data
+		])
+		xAxis_inRight_x = np.tensordot(
+			xAxis_xLeft,
+			boundaryState,
+			(0, 0))
+		xAxis_inRight_y = np.tensordot(
+			xAxis_yLeft,
+			boundaryState,
+			(0, 0))
+		boundaryState -= np.outer(xAxis_xLeft, xAxis_inRight_x)
+		boundaryState -= np.outer(xAxis_yLeft, xAxis_inRight_y)
+
+		e_x.setRightBoundary(0, ModalRepresentation(
+			[chebEngine], boundaryState[0]))
+		e_y.setRightBoundary(0, ModalRepresentation(
+			[chebEngine], boundaryState[1]))
+		gamma_yy.setRightBoundary(0, ModalRepresentation(
+			[chebEngine], boundaryState[2]))
+		gamma_xy.setRightBoundary(0, ModalRepresentation(
+			[chebEngine], boundaryState[3]))
+
+
+		#y axis boundaries
+		#e_x, e_y, gamma_xx, gamma_yx
+		boundaryState = np.array([
+			e_x.getLeftBoundary(1).data,
+			e_y.getLeftBoundary(1).data,
+			gamma_xx.getLeftBoundary(1).data,
+			gamma_yx.getLeftBoundary(1).data
+		])
+		yAxis_inLeft_x = np.tensordot(
+			yAxis_xRight,
+			boundaryState,
+			(0, 0))
+		yAxis_inLeft_y = np.tensordot(
+			yAxis_yRight,
+			boundaryState,
+			(0, 0))
+		boundaryState -= np.outer(yAxis_xRight, yAxis_inLeft_x)
+		boundaryState -= np.outer(yAxis_yRight, yAxis_inLeft_y)
+
+		e_x.setLeftBoundary(1, ModalRepresentation(
+			[chebEngine], boundaryState[0]))
+		e_y.setLeftBoundary(1, ModalRepresentation(
+			[chebEngine], boundaryState[1]))
+		gamma_xx.setLeftBoundary(1, ModalRepresentation(
+			[chebEngine], boundaryState[2]))
+		gamma_yx.setLeftBoundary(1, ModalRepresentation(
+			[chebEngine], boundaryState[3]))
+
+
+		boundaryState = np.array([
+			e_x.getRightBoundary(1).data,
+			e_y.getRightBoundary(1).data,
+			gamma_xx.getRightBoundary(1).data,
+			gamma_yx.getRightBoundary(1).data
+		])
+		yAxis_inRight_x = np.tensordot(
+			yAxis_xLeft,
+			boundaryState,
+			(0, 0))
+		yAxis_inRight_y = np.tensordot(
+			yAxis_yLeft,
+			boundaryState,
+			(0, 0))
+		boundaryState -= np.outer(yAxis_xLeft, yAxis_inRight_x)
+		boundaryState -= np.outer(yAxis_yLeft, yAxis_inRight_y)
+
+		e_x.setRightBoundary(1, ModalRepresentation(
+			[chebEngine], boundaryState[0]))
+		e_y.setRightBoundary(1, ModalRepresentation(
+			[chebEngine], boundaryState[1]))
+		gamma_xx.setRightBoundary(1, ModalRepresentation(
+			[chebEngine], boundaryState[2]))
+		gamma_yx.setRightBoundary(1, ModalRepresentation(
+			[chebEngine], boundaryState[3]))
+
+
+		###------------------- state dot --------------------###
+
+		gamma_yy_x = gradientComponent(gamma_yy, 0)
+		gamma_yx_y = gradientComponent(gamma_yx, 1)
+		gamma_xx_y = gradientComponent(gamma_xx, 1)
+		gamma_xy_x = gradientComponent(gamma_xy, 0)
+
+		e_x_x = gradientComponent(e_x, 0)
+		e_x_y = gradientComponent(e_x, 1)
+		e_y_x = gradientComponent(e_y, 0)
+		e_y_y = gradientComponent(e_y, 1)
+
+		e_x_dot = gamma_yy_x - gamma_yx_y
+		e_y_dot = gamma_xx_y - gamma_xy_x
+		a_y_dot = -e_x
+		a_x_dot = -e_y
+		gamma_xx_dot = e_y_y - functionToModal(
+			lambda x: chargeDensity(x, time), engines)
+		gamma_yy_dot = e_x_x - functionToModal(
+			lambda x: chargeDensity(x, time), engines)
+		gamma_xy_dot = -e_y_x
+		gamma_yx_dot = -e_x_y
+
+
+		# #x axis boundaries
+		# #e_x, e_y, gamma_yy, gamma_xy
+		# boundaryState = np.array([
+		# 	e_x_dot.getLeftBoundary(0).data,
+		# 	e_y_dot.getLeftBoundary(0).data,
+		# 	gamma_yy_dot.getLeftBoundary(0).data,
+		# 	gamma_xy_dot.getLeftBoundary(0).data
+		# ])
+		# # xAxis_inLeft_x = np.tensordot(
+		# # 	xAxis_xRight,
+		# # 	boundaryState,
+		# # 	(0, 0))
+		# # xAxis_inLeft_y = np.tensordot(
+		# # 	xAxis_yRight,
+		# # 	boundaryState,
+		# # 	(0, 0))
+		# boundaryState -= np.outer(xAxis_xRight, xAxis_inLeft_x)
+		# boundaryState -= np.outer(xAxis_yRight, xAxis_inLeft_y)
+
+		# e_x_dot.setLeftBoundary(0, ModalRepresentation(
+		# 	[chebEngine], boundaryState[0]))
+		# e_y_dot.setLeftBoundary(0, ModalRepresentation(
+		# 	[chebEngine], boundaryState[1]))
+		# gamma_yy_dot.setLeftBoundary(0, ModalRepresentation(
+		# 	[chebEngine], boundaryState[2]))
+		# gamma_xy_dot.setLeftBoundary(0, ModalRepresentation(
+		# 	[chebEngine], boundaryState[3]))
+
+
+		# boundaryState = np.array([
+		# 	e_x_dot.getRightBoundary(0).data,
+		# 	e_y_dot.getRightBoundary(0).data,
+		# 	gamma_yy_dot.getRightBoundary(0).data,
+		# 	gamma_xy_dot.getRightBoundary(0).data
+		# ])
+		# # xAxis_inRight_x = np.tensordot(
+		# # 	xAxis_xLeft,
+		# # 	boundaryState,
+		# # 	(0, 0))
+		# # xAxis_inRight_y = np.tensordot(
+		# # 	xAxis_yLeft,
+		# # 	boundaryState,
+		# # 	(0, 0))
+		# boundaryState -= np.outer(xAxis_xLeft, xAxis_inRight_x)
+		# boundaryState -= np.outer(xAxis_yLeft, xAxis_inRight_y)
+
+		# e_x_dot.setRightBoundary(0, ModalRepresentation(
+		# 	[chebEngine], boundaryState[0]))
+		# e_y_dot.setRightBoundary(0, ModalRepresentation(
+		# 	[chebEngine], boundaryState[1]))
+		# gamma_yy_dot.setRightBoundary(0, ModalRepresentation(
+		# 	[chebEngine], boundaryState[2]))
+		# gamma_xy_dot.setRightBoundary(0, ModalRepresentation(
+		# 	[chebEngine], boundaryState[3]))
+
+
+		# #y axis boundaries
+		# #e_x, e_y, gamma_xx, gamma_yx
+		# boundaryState = np.array([
+		# 	e_x_dot.getLeftBoundary(1).data,
+		# 	e_y_dot.getLeftBoundary(1).data,
+		# 	gamma_xx_dot.getLeftBoundary(1).data,
+		# 	gamma_yx_dot.getLeftBoundary(1).data
+		# ])
+		# # yAxis_inLeft_x = np.tensordot(
+		# # 	yAxis_xRight,
+		# # 	boundaryState,
+		# # 	(0, 0))
+		# # yAxis_inLeft_y = np.tensordot(
+		# # 	yAxis_yRight,
+		# # 	boundaryState,
+		# # 	(0, 0))
+		# boundaryState -= np.outer(yAxis_xRight, yAxis_inLeft_x)
+		# boundaryState -= np.outer(yAxis_yRight, yAxis_inLeft_y)
+
+		# e_x_dot.setLeftBoundary(1, ModalRepresentation(
+		# 	[chebEngine], boundaryState[0]))
+		# e_y_dot.setLeftBoundary(1, ModalRepresentation(
+		# 	[chebEngine], boundaryState[1]))
+		# gamma_xx_dot.setLeftBoundary(1, ModalRepresentation(
+		# 	[chebEngine], boundaryState[2]))
+		# gamma_yx_dot.setLeftBoundary(1, ModalRepresentation(
+		# 	[chebEngine], boundaryState[3]))
+
+
+		# boundaryState = np.array([
+		# 	e_x_dot.getRightBoundary(1).data,
+		# 	e_y_dot.getRightBoundary(1).data,
+		# 	gamma_xx_dot.getRightBoundary(1).data,
+		# 	gamma_yx_dot.getRightBoundary(1).data
+		# ])
+		# # yAxis_inRight_x = np.tensordot(
+		# # 	yAxis_xLeft,
+		# # 	boundaryState,
+		# # 	(0, 0))
+		# # yAxis_inRight_y = np.tensordot(
+		# # 	yAxis_yLeft,
+		# # 	boundaryState,
+		# # 	(0, 0))
+		# boundaryState -= np.outer(yAxis_xLeft, yAxis_inRight_x)
+		# boundaryState -= np.outer(yAxis_yLeft, yAxis_inRight_y)
+
+		# e_x_dot.setRightBoundary(1, ModalRepresentation(
+		# 	[chebEngine], boundaryState[0]))
+		# e_y_dot.setRightBoundary(1, ModalRepresentation(
+		# 	[chebEngine], boundaryState[1]))
+		# gamma_xx_dot.setRightBoundary(1, ModalRepresentation(
+		# 	[chebEngine], boundaryState[2]))
+		# gamma_yx_dot.setRightBoundary(1, ModalRepresentation(
+		# 	[chebEngine], boundaryState[3]))
+
+
+		output = np.array([
+			e_x_dot.data,
+			e_y_dot.data,
+			a_x_dot.data,
+			a_y_dot.data,
+			gamma_xx_dot.data,
+			gamma_yy_dot.data,
+			gamma_xy_dot.data,
+			gamma_yx_dot.data])
+		
+		return np.reshape(output, (8 * (N + 1)**2, ))
+	
+	solutionSet = scipy.integrate.solve_ivp(
+		stateDot, [tData[0], tData[-1]], initState, dense_output=True)
+
+	t1 = time.time()
+	print("simulation completed in " + str(t1 - t0) + " seconds")
+	x0 = time.time()
+
+	outputDataSet = np.zeros((len(tData), len(initState)))
+
+	for i in range(len(tData)):
+		outputDataSet[i] = solutionSet.sol(tData[i])
+
+	solver_tData = solutionSet.t
+	dtList = []
+	for i in range(1, len(solver_tData)):
+		dtList.append(solver_tData[i] - solver_tData[i - 1])
+	print("average deltaT: " + str(sum(dtList) / len(dtList)))
+
+	# tData = solutionSet.t
+	# yDataSet = np.transpose(solutionSet.y)
+	e_xDataSet = []
+	e_yDataSet = []
+	eDataSet = []
+	# piDataSet = []
+	# gamma_xDataSet = []
+	# gamma_yDataSet = []
+
+	preComputedArray = PreCompute(engines, [xData, yData])
+	for outputData in outputDataSet:
+		unpacked = np.reshape(outputData, (8, N + 1, N + 1))
+
+		e_xModal = ModalRepresentation(engines, unpacked[0])
+		e_yModal = ModalRepresentation(engines, unpacked[1])
+		e_xFunct = modalToFunction(e_xModal)
+		e_yFunct = modalToFunction(e_yModal)
+		e_xData = np.zeros((len(xData), len(yData)))
+		e_yData = np.zeros((len(xData), len(yData)))
+		eData = np.zeros((len(xData), len(yData)))
+		for i in range(len(xData)):
+			for j in range(len(yData)):
+				e_xData[i][j] = e_xFunct(
+					np.array([i, j]), preComputedArray)
+				e_yData[i][j] = e_yFunct(
+					np.array([i, j]), preComputedArray)
+				eData[i][j] = np.sqrt(
+					e_xData[i][j]**2 + e_yData[i][j]**2)
+		e_xDataSet.append(e_xData)
+		e_yDataSet.append(e_yData)
+		eDataSet.append(eData)
+	
+	t1 = time.time()
+	print("data evaluated in " + str(t1 - t0) + " seconds")
+
+	minVal = -1.
+	maxVal = 1.
+
+	fig = plt.figure()
+	# ax = fig.add_subplot(111, projection='3d')
+	ax = fig.add_subplot(111,
+		projection='3d',
+		autoscale_on=False,
+		xlim=(-1., 1.),
+		ylim=(-1., 1.),
+		zlim=(minVal-0.01, maxVal+0.01))
+	# plotx = ax.plot_surface(meshX,meshY,e_xDataSet[0])
+	# ploty = ax.plot_surface(meshX,meshY,e_yDataSet[0])
+	plotmag = ax.plot_surface(meshX,meshY,eDataSet[0])
+
+	def animate(frame):
+		ax.collections.clear()
+		# plotx = ax.plot_surface(
+		# 	meshX,meshY,e_xDataSet[frame], color='blue')
+		# ploty = ax.plot_surface(
+		# 	meshX,meshY,e_yDataSet[frame], color='red')
+		plotmag = ax.plot_surface(
+			meshX,meshY,eDataSet[frame], color='blue')
+	
+	ani = animation.FuncAnimation(
+		fig, animate, len(tData),
+		interval = animationDuration * 1000 / len(tData)
+	)
+	plt.show()
+
+	
+
 def scalar_2D(
 	N = 8,
 	animationDuration = 2.,
@@ -256,13 +696,20 @@ def scalar_2D(
 		return np.cos(r)**2 if r < (np.pi / 2) else 0
 
 	def sourceFunct(x, t):
-		omega = 10.
-		width = 0.15
-		radius = 0.2
-		sourceLocation = np.array([np.cos(t * omega), np.sin(t * omega)]) * radius
+		# width = 0.25
+		# amplitude = 0.1
+		# amplitude /= width**2
+		# omega = 4.
+		# radius = 0.3
+		# sourceLocation = np.array([np.cos(t * omega), np.sin(t * omega)]) * radius
+		# return (bump(x, np.array(sourceLocation), width) - bump(x, np.array(-sourceLocation), width)) * amplitude
+		
+		width = 0.3
 		amplitude = 0.1
 		amplitude /= width**2
-		return (bump(x, np.array(sourceLocation), width) - bump(x, np.array(-sourceLocation), width)) * amplitude
+		sourceLocation = np.array([0., 0.])
+		return bump(x, sourceLocation, width) * amplitude
+
 		# return 5 * np.sin(x[0] * np.pi) * np.sin(x[1] * np.pi)
 
 	chebEngine = ChebEngine(N)
@@ -392,8 +839,8 @@ def scalar_2D(
 		gamma_yy = gradientComponent(gamma_y, 1)
 
 		phiDot = pi
-		piDot = gamma_xx + gamma_yy + functionToModal(lambda x: sourceFunct(x, time), engines)
-		gamma_xDot = pi_x
+		piDot = gamma_xx# + gamma_yy + functionToModal(lambda x: sourceFunct(x, time), engines)
+		gamma_xDot = pi_x - functionToModal(lambda x: sourceFunct(x, time), engines)
 		gamma_yDot = pi_y
 
 		output = np.array([
@@ -434,7 +881,8 @@ def scalar_2D(
 	for outputData in outputDataSet:
 		unpacked = np.reshape(outputData, (4, N + 1, N + 1))
 
-		phiModal = ModalRepresentation(engines, unpacked[0])
+		phiModal = ModalRepresentation(engines, unpacked[1])
+		# phiModal = ModalRepresentation(engines, unpacked[0])
 		phiFunct = modalToFunction(phiModal)
 		phiData = np.zeros((len(xData), len(yData)))
 		for i in range(len(xData)):
@@ -632,8 +1080,11 @@ def scalar_1D(
 	)
 	plt.show()
 
-# scalar_2D(animationDuration=5., N=8)
-scalar_2D(animationDuration=10., N=16, simDuration=8.0, dt=0.03)
+# em_2D()
+
+scalar_2D(animationDuration=5., N=8)
+# scalar_2D(animationDuration=5., N=16, simDuration=8.0, dt=0.1)
 # scalar_2D(animationDuration=10., N=24, simDuration=1.5, display_dx=0.05, dt=0.03)
+
 # scalar_1D()
 
