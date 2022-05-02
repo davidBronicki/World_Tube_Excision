@@ -343,125 +343,45 @@ def em_2D(
 		state = np.reshape(state, (8, N + 1, N + 1))
 		e_x = ModalRepresentation(engines, state[0])
 		e_y = ModalRepresentation(engines, state[1])
-		a_x = ModalRepresentation(engines, state[2])
-		a_y = ModalRepresentation(engines, state[3])
-		gamma_xx = ModalRepresentation(engines, state[4])
-		gamma_yy = ModalRepresentation(engines, state[5])
-		gamma_xy = ModalRepresentation(engines, state[6])
-		gamma_yx = ModalRepresentation(engines, state[7])
+		gamma_xx = ModalRepresentation(engines, state[2])
+		gamma_yy = ModalRepresentation(engines, state[3])
+		gamma_xy = ModalRepresentation(engines, state[4])
+		gamma_yx = ModalRepresentation(engines, state[5])
+		# a_x = ModalRepresentation(engines, state[6])
+		# a_y = ModalRepresentation(engines, state[7])
 
-
-		#x axis boundaries
-		#e_x, e_y, gamma_yy, gamma_xy
-		boundaryState = np.array([
-			e_x.getLeftBoundary(0).data,
-			e_y.getLeftBoundary(0).data,
-			gamma_yy.getLeftBoundary(0).data,
-			gamma_xy.getLeftBoundary(0).data
-		])
-		xAxis_inLeft_x = np.tensordot(
-			xAxis_xRight,
-			boundaryState,
-			(0, 0))
-		xAxis_inLeft_y = np.tensordot(
-			xAxis_yRight,
-			boundaryState,
-			(0, 0))
-		boundaryState -= np.outer(xAxis_xRight, xAxis_inLeft_x)
-		boundaryState -= np.outer(xAxis_yRight, xAxis_inLeft_y)
-
-		e_x.setLeftBoundary(0, ModalRepresentation(
-			[chebEngine], boundaryState[0]))
-		e_y.setLeftBoundary(0, ModalRepresentation(
-			[chebEngine], boundaryState[1]))
-		gamma_yy.setLeftBoundary(0, ModalRepresentation(
-			[chebEngine], boundaryState[2]))
-		gamma_xy.setLeftBoundary(0, ModalRepresentation(
-			[chebEngine], boundaryState[3]))
-
-
-		boundaryState = np.array([
-			e_x.getRightBoundary(0).data,
-			e_y.getRightBoundary(0).data,
-			gamma_yy.getRightBoundary(0).data,
-			gamma_xy.getRightBoundary(0).data
-		])
-		xAxis_inRight_x = np.tensordot(
-			xAxis_xLeft,
-			boundaryState,
-			(0, 0))
-		xAxis_inRight_y = np.tensordot(
-			xAxis_yLeft,
-			boundaryState,
-			(0, 0))
-		boundaryState -= np.outer(xAxis_xLeft, xAxis_inRight_x)
-		boundaryState -= np.outer(xAxis_yLeft, xAxis_inRight_y)
-
-		e_x.setRightBoundary(0, ModalRepresentation(
-			[chebEngine], boundaryState[0]))
-		e_y.setRightBoundary(0, ModalRepresentation(
-			[chebEngine], boundaryState[1]))
-		gamma_yy.setRightBoundary(0, ModalRepresentation(
-			[chebEngine], boundaryState[2]))
-		gamma_xy.setRightBoundary(0, ModalRepresentation(
-			[chebEngine], boundaryState[3]))
-
-
-		#y axis boundaries
-		#e_x, e_y, gamma_xx, gamma_yx
-		boundaryState = np.array([
-			e_x.getLeftBoundary(1).data,
-			e_y.getLeftBoundary(1).data,
-			gamma_xx.getLeftBoundary(1).data,
-			gamma_yx.getLeftBoundary(1).data
-		])
-		yAxis_inLeft_x = np.tensordot(
-			yAxis_xRight,
-			boundaryState,
-			(0, 0))
-		yAxis_inLeft_y = np.tensordot(
-			yAxis_yRight,
-			boundaryState,
-			(0, 0))
-		boundaryState -= np.outer(yAxis_xRight, yAxis_inLeft_x)
-		boundaryState -= np.outer(yAxis_yRight, yAxis_inLeft_y)
-
-		e_x.setLeftBoundary(1, ModalRepresentation(
-			[chebEngine], boundaryState[0]))
-		e_y.setLeftBoundary(1, ModalRepresentation(
-			[chebEngine], boundaryState[1]))
-		gamma_xx.setLeftBoundary(1, ModalRepresentation(
-			[chebEngine], boundaryState[2]))
-		gamma_yx.setLeftBoundary(1, ModalRepresentation(
-			[chebEngine], boundaryState[3]))
-
-
-		boundaryState = np.array([
-			e_x.getRightBoundary(1).data,
-			e_y.getRightBoundary(1).data,
-			gamma_xx.getRightBoundary(1).data,
-			gamma_yx.getRightBoundary(1).data
-		])
-		yAxis_inRight_x = np.tensordot(
-			yAxis_xLeft,
-			boundaryState,
-			(0, 0))
-		yAxis_inRight_y = np.tensordot(
-			yAxis_yLeft,
-			boundaryState,
-			(0, 0))
-		boundaryState -= np.outer(yAxis_xLeft, yAxis_inRight_x)
-		boundaryState -= np.outer(yAxis_yLeft, yAxis_inRight_y)
-
-		e_x.setRightBoundary(1, ModalRepresentation(
-			[chebEngine], boundaryState[0]))
-		e_y.setRightBoundary(1, ModalRepresentation(
-			[chebEngine], boundaryState[1]))
-		gamma_xx.setRightBoundary(1, ModalRepresentation(
-			[chebEngine], boundaryState[2]))
-		gamma_yx.setRightBoundary(1, ModalRepresentation(
-			[chebEngine], boundaryState[3]))
-
+		#horizontal boundary conditions
+		xRadiationVector = [e_x, e_y, gamma_yy, gamma_xy]
+		boundaryStateVector = BoundaryVector(
+			xRadiationVector,
+			0
+		)
+		boundaryStateVector.enforceLeftProjectionCondition(
+			np.identity(4)
+				- np.outer(xAxis_xRight, xAxis_xRight)
+				- np.outer(xAxis_yRight, xAxis_yRight)
+		)
+		boundaryStateVector.enforceRightProjectionCondition(
+			np.identity(4)
+				- np.outer(xAxis_xLeft, xAxis_xLeft)
+				- np.outer(xAxis_yLeft, xAxis_yLeft)
+		)
+		#vertical boundary conditions
+		yRadiationVector = [e_x, e_y, gamma_xx, gamma_yx]
+		boundaryStateVector = BoundaryVector(
+			yRadiationVector,
+			1
+		)
+		boundaryStateVector.enforceLeftProjectionCondition(
+			np.identity(4)
+				- np.outer(yAxis_xRight, yAxis_xRight)
+				- np.outer(yAxis_yRight, yAxis_yRight)
+		)
+		boundaryStateVector.enforceRightProjectionCondition(
+			np.identity(4)
+				- np.outer(yAxis_xLeft, yAxis_xLeft)
+				- np.outer(yAxis_yLeft, yAxis_yLeft)
+		)
 
 		###------------------- state dot --------------------###
 
@@ -477,137 +397,25 @@ def em_2D(
 
 		e_x_dot = gamma_yy_x - gamma_yx_y
 		e_y_dot = gamma_xx_y - gamma_xy_x
-		a_y_dot = -e_x
-		a_x_dot = -e_y
-		gamma_xx_dot = e_y_y - functionToModal(
+		# a_y_dot = -e_x
+		# a_x_dot = -e_y
+
+		chargeDensityModal = functionToModal(
 			lambda x: chargeDensity(x, time), engines)
-		gamma_yy_dot = e_x_x - functionToModal(
-			lambda x: chargeDensity(x, time), engines)
+		gamma_xx_dot = e_y_y - chargeDensityModal
+		gamma_yy_dot = e_x_x - chargeDensityModal
 		gamma_xy_dot = -e_y_x
 		gamma_yx_dot = -e_x_y
-
-
-		# #x axis boundaries
-		# #e_x, e_y, gamma_yy, gamma_xy
-		# boundaryState = np.array([
-		# 	e_x_dot.getLeftBoundary(0).data,
-		# 	e_y_dot.getLeftBoundary(0).data,
-		# 	gamma_yy_dot.getLeftBoundary(0).data,
-		# 	gamma_xy_dot.getLeftBoundary(0).data
-		# ])
-		# # xAxis_inLeft_x = np.tensordot(
-		# # 	xAxis_xRight,
-		# # 	boundaryState,
-		# # 	(0, 0))
-		# # xAxis_inLeft_y = np.tensordot(
-		# # 	xAxis_yRight,
-		# # 	boundaryState,
-		# # 	(0, 0))
-		# boundaryState -= np.outer(xAxis_xRight, xAxis_inLeft_x)
-		# boundaryState -= np.outer(xAxis_yRight, xAxis_inLeft_y)
-
-		# e_x_dot.setLeftBoundary(0, ModalRepresentation(
-		# 	[chebEngine], boundaryState[0]))
-		# e_y_dot.setLeftBoundary(0, ModalRepresentation(
-		# 	[chebEngine], boundaryState[1]))
-		# gamma_yy_dot.setLeftBoundary(0, ModalRepresentation(
-		# 	[chebEngine], boundaryState[2]))
-		# gamma_xy_dot.setLeftBoundary(0, ModalRepresentation(
-		# 	[chebEngine], boundaryState[3]))
-
-
-		# boundaryState = np.array([
-		# 	e_x_dot.getRightBoundary(0).data,
-		# 	e_y_dot.getRightBoundary(0).data,
-		# 	gamma_yy_dot.getRightBoundary(0).data,
-		# 	gamma_xy_dot.getRightBoundary(0).data
-		# ])
-		# # xAxis_inRight_x = np.tensordot(
-		# # 	xAxis_xLeft,
-		# # 	boundaryState,
-		# # 	(0, 0))
-		# # xAxis_inRight_y = np.tensordot(
-		# # 	xAxis_yLeft,
-		# # 	boundaryState,
-		# # 	(0, 0))
-		# boundaryState -= np.outer(xAxis_xLeft, xAxis_inRight_x)
-		# boundaryState -= np.outer(xAxis_yLeft, xAxis_inRight_y)
-
-		# e_x_dot.setRightBoundary(0, ModalRepresentation(
-		# 	[chebEngine], boundaryState[0]))
-		# e_y_dot.setRightBoundary(0, ModalRepresentation(
-		# 	[chebEngine], boundaryState[1]))
-		# gamma_yy_dot.setRightBoundary(0, ModalRepresentation(
-		# 	[chebEngine], boundaryState[2]))
-		# gamma_xy_dot.setRightBoundary(0, ModalRepresentation(
-		# 	[chebEngine], boundaryState[3]))
-
-
-		# #y axis boundaries
-		# #e_x, e_y, gamma_xx, gamma_yx
-		# boundaryState = np.array([
-		# 	e_x_dot.getLeftBoundary(1).data,
-		# 	e_y_dot.getLeftBoundary(1).data,
-		# 	gamma_xx_dot.getLeftBoundary(1).data,
-		# 	gamma_yx_dot.getLeftBoundary(1).data
-		# ])
-		# # yAxis_inLeft_x = np.tensordot(
-		# # 	yAxis_xRight,
-		# # 	boundaryState,
-		# # 	(0, 0))
-		# # yAxis_inLeft_y = np.tensordot(
-		# # 	yAxis_yRight,
-		# # 	boundaryState,
-		# # 	(0, 0))
-		# boundaryState -= np.outer(yAxis_xRight, yAxis_inLeft_x)
-		# boundaryState -= np.outer(yAxis_yRight, yAxis_inLeft_y)
-
-		# e_x_dot.setLeftBoundary(1, ModalRepresentation(
-		# 	[chebEngine], boundaryState[0]))
-		# e_y_dot.setLeftBoundary(1, ModalRepresentation(
-		# 	[chebEngine], boundaryState[1]))
-		# gamma_xx_dot.setLeftBoundary(1, ModalRepresentation(
-		# 	[chebEngine], boundaryState[2]))
-		# gamma_yx_dot.setLeftBoundary(1, ModalRepresentation(
-		# 	[chebEngine], boundaryState[3]))
-
-
-		# boundaryState = np.array([
-		# 	e_x_dot.getRightBoundary(1).data,
-		# 	e_y_dot.getRightBoundary(1).data,
-		# 	gamma_xx_dot.getRightBoundary(1).data,
-		# 	gamma_yx_dot.getRightBoundary(1).data
-		# ])
-		# # yAxis_inRight_x = np.tensordot(
-		# # 	yAxis_xLeft,
-		# # 	boundaryState,
-		# # 	(0, 0))
-		# # yAxis_inRight_y = np.tensordot(
-		# # 	yAxis_yLeft,
-		# # 	boundaryState,
-		# # 	(0, 0))
-		# boundaryState -= np.outer(yAxis_xLeft, yAxis_inRight_x)
-		# boundaryState -= np.outer(yAxis_yLeft, yAxis_inRight_y)
-
-		# e_x_dot.setRightBoundary(1, ModalRepresentation(
-		# 	[chebEngine], boundaryState[0]))
-		# e_y_dot.setRightBoundary(1, ModalRepresentation(
-		# 	[chebEngine], boundaryState[1]))
-		# gamma_xx_dot.setRightBoundary(1, ModalRepresentation(
-		# 	[chebEngine], boundaryState[2]))
-		# gamma_yx_dot.setRightBoundary(1, ModalRepresentation(
-		# 	[chebEngine], boundaryState[3]))
-
 
 		output = np.array([
 			e_x_dot.data,
 			e_y_dot.data,
-			a_x_dot.data,
-			a_y_dot.data,
 			gamma_xx_dot.data,
 			gamma_yy_dot.data,
 			gamma_xy_dot.data,
 			gamma_yx_dot.data])
+			# a_x_dot.data,
+			# a_y_dot.data])
 		
 		return np.reshape(output, (8 * (N + 1)**2, ))
 	
@@ -713,7 +521,6 @@ def scalar_2D(
 		# r = np.sqrt(x[0]**2 + x[1]**2)
 		# return A*r**2 * np.exp(-a * (r - b)) * mask
 		return 0.
-		# return np.sin(x[0] * np.pi * 2) * np.sin(x[1] * np.pi * 1)
 	def initialPi(x):
 		# mask = min((1 - abs(x[0])) * (1 - abs(x[1])), 0.1) * 10
 		# r = np.sqrt(x[0]**2 + x[1]**2)
@@ -739,8 +546,6 @@ def scalar_2D(
 		amplitude /= width**2
 		sourceLocation = np.array([0.2, 0.])
 		return bump(x, sourceLocation, width) * amplitude
-
-		# return 5 * np.sin(x[0] * np.pi) * np.sin(x[1] * np.pi)
 
 	chebEngine = ChebEngine(N)
 	engines = [chebEngine, chebEngine]
@@ -1085,7 +890,7 @@ def chebTest():
 
 
 
-# em_2D(animationDuration=8., N=8, simDuration=4., display_dx=0.1)
+em_2D(animationDuration=8., N=8, simDuration=4., display_dx=0.1)
 
 # scalar_2D(animationDuration=8., N=8, simDuration=4.)
 # scalar_2D(animationDuration=5., N=16, simDuration=8.0, dt=0.1)
@@ -1093,4 +898,4 @@ def chebTest():
 
 # scalar_1D(animationDuration=6., N=8, simDuration=6.)
 
-chebTest()
+# chebTest()
