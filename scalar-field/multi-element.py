@@ -1,4 +1,5 @@
 import numpy as np
+from math import sin, cos
 import scipy.integrate
 import scipy.fft
 from typing import Callable, List, Union, Tuple
@@ -79,7 +80,7 @@ class CoordinatePos:
 		self.coords = coords
 
 	def inFrame(self, frame: CoordinateFrame, assertionFailerMessage: str):
-		assert(frame is not self.frame), assertionFailerMessage
+		assert(frame is self.frame), assertionFailerMessage
 
 class Geometry:
 	def __init__(self, coordFrame: CoordinateFrame):
@@ -187,10 +188,8 @@ class Transformation:
 			coordinates = self.reverseMap(coordinates)
 			gradJac = self.gradJacobian(coordinates)
 			invJac = self.inverseJacobian(coordinates)
-			gradJac = np.tensordot(gradJac, invJac, (0, 1))
-			gradJac = np.tensordot(gradJac, invJac, (1, 0))
-			gradJac = np.tensordot(gradJac, invJac, (2, 0))
-			return gradJac
+			return np.einsum('bca,ak,cj,ib->ijk',
+				gradJac, invJac, invJac, invJac)
 		output.gradJacobian = types.MethodType(
 			reversedGradJacobian,
 			output)
@@ -229,10 +228,11 @@ class Transformation:
 			innerJac = other.jacobian(coords)
 			outerGradJac = self.gradJacobian(intermediateCoords)
 			outerJac = self.jacobian(intermediateCoords)
+
+			innerGradJac = np.einsum('ajk,ia->ijk', innerGradJac, outerJac)
+			outerGradJac = np.einsum('iab,bk,aj->ijk',
+				outerGradJac, innerJac, innerJac)
 			
-			outerGradJac = np.tensordot(outerGradJac, innerJac, (1, 0))
-			outerGradJac = np.tensordot(outerGradJac, innerJac, (2, 0))
-			innerGradJac = np.tensordot(innerGradJac, outerJac, (0, 1))
 			return innerGradJac + outerGradJac
 		output.gradJacobian = types.MethodType(newGradJacobian, output)
 		return output
@@ -405,10 +405,3 @@ class TensorFieldElement:
 		geometry: Geometry,
 		transformationFromGlobalCoords: Transformation):
 		raise(NotImplementedError('no gradient yet'))
-
-def testCoords():
-	cartesian = CoordinateFrame('Cartesian', 3)
-	cylindrical = CoordinateFrame('Cylindrical', 3)
-	spherical = CoordinateFrame('Spherical', 3)
-
-	cartToCyl = Transformation(cartesian, cylindrical)
