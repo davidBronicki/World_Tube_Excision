@@ -1,0 +1,131 @@
+\documentclass[12pt]{article}
+%\usepackage[utf9]{inputenc}
+%\documentclass[aps,onecolumn,12pt]{revtex4-1}
+%\documentclass[aps,10pt]{revtex4-1}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{amsthm}
+\usepackage{float}
+\usepackage{color}
+\usepackage{graphicx}
+\usepackage{gensymb}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{wrapfig}
+\usepackage{braket}
+\usepackage{verbatim}
+\usepackage{mathtools}
+\usepackage{soul}
+\usepackage[margin=0.8in]{geometry}
+
+\usepackage[dvipsnames]{xcolor}
+
+\usepackage{fancyvrb}
+
+\renewcommand{\bf}[1]{\boldsymbol{#1}}
+
+\begin{document}
+\title{Notes on World Tube Excision: Mutlipole Expansion in Electrodynamics}
+\author{David Bronicki}
+
+\maketitle
+
+All calculations use $c=\varepsilon_0=1$.
+
+\section{Static Field}
+
+\subsection{Without external charges}
+
+For three dimensions, we can copy directly from Jackson
+(with a shift of $2\ell+1$ from inside the expansion
+to in the definition of the coefficient):
+
+\begin{align}
+	\Phi&=\sum_{\ell m}q_{\ell m}
+	\frac{Y_{\ell m}(\theta, \phi)}{r^{\ell+1}}\\
+	q_{\ell m}&=
+	\int \frac{1}{2\ell+1} Y_{\ell m}^*(\theta',\phi'){r'}^\ell\rho(\bf x')d^3x'.
+\end{align}
+
+For two dimensions (as I would like to start with in Python),
+we start with the Green's function in polar coordinates:
+
+\begin{align}
+	\nabla^2 G(\bf x, \bf x')&=\delta(\bf x - \bf x')\\
+	G(\bf x, \bf x')&=\ln(r_>)+
+	\sum_{m\neq 0}e^{im(\phi-\phi')}
+	\frac{-1}{2|m|}\left(\frac{r_<}{r_>}\right)^{|m|}\\
+	&=\ln(r_>)-
+	\sum_{m>0}\frac{1}{m}\cos(m(\phi-\phi'))
+	\left(\frac{r_<}{r_>}\right)^m\\
+	&=\ln(r_>)-
+	\sum_{m>0}\frac{1}{m}\left(\frac{r_<}{r_>}\right)^m
+	\left[\sin(m\phi)\sin(m\phi')+\cos(m\phi)\cos(m\phi')\right],
+\end{align}
+where $r_<=\min(r,r')$ and $r_>=\max(r,r')$.
+Following Jackson's derivation, we proceed to
+integrate over all charge and assume the point
+of observation ($\bf x$) is further from the
+origin than all charges in the configuration.
+That is, we set $r_<=r'$ and $r_>=r$. This gives
+\begin{align}
+	\Phi&=-q_0 \ln(r)+\sum_{m\neq 0}q_m e^{im\phi}\frac{1}{r^{|m|}}\\
+	q_0&=\int\rho(\bf x') d^2x'\\
+	q_{m\neq 0}&=\int \frac{1}{2|m|}e^{-im\phi'}{r'}^{|m|}\rho(r',\phi')d^2x'
+\end{align}
+
+\subsection{With unknown external charges/field}
+To find boundary constraints which handle arbitrary external
+charges (and hopefully fields), I added in arbitrary coefficients
+and created constraints on the potential and it's $r$ derivative at
+some boundary $r=R$.
+In two dimensions:
+\begin{align}
+	\Phi\big|_R&=\left[-q_0\ln(R)+Q_0\right]
+	+\sum_{m\neq 0}\left[
+		Q_m R^{|m|}+\frac{q_m}{R^{|m|}}\right]e^{im\phi}\\
+	\left.\frac{\partial \phi}{\partial r}\right|_R&=
+	\frac{q_0}{R}
+	+\frac{1}{R}\sum_{m\neq 0}|m|\left[
+		Q_m R^{|m|}-\frac{q_m}{R^{|m|}}\right]e^{im\phi}.
+	\intertext{We now define coefficients of the expansion on this boundary:}
+	c_m&=\int \Phi(R,\phi')e^{-im\phi'}d\phi'\\
+	\Phi\big|_R&=\sum_m c_m e^{im\phi}
+	\intertext{and similar for the normal derivative}
+	c_m'&=\int \left.\frac{\partial\Phi}{\partial r}\right|_{R,\phi'}
+	e^{-im\phi'}d\phi'\\
+	\left.\frac{\partial\Phi}{\partial r}\right|_R&=\sum_m c_m' e^{im\phi}
+	\intertext{and get the constraint}
+	\Aboxed{R^{|m|}\big[|m| c_m-c_m' R\big]&=
+	\int \rho(\bf x')e^{-im\phi'}{r'}^{|m|}d^2x'.}
+\end{align}
+(The last integral is over only internal charges.)
+
+Similarly, in three dimensions,
+\begin{align}
+	\Phi\big|_R&=\sum_{\ell m}\left[
+		q_{\ell m}\frac{1}{R^{\ell+1}}
+		+Q_{\ell m}R^\ell\right]
+	Y_{\ell m}(\theta, \phi)\\
+	\left.\frac{\partial\Phi}{\partial r}\right|_R&=
+	\frac{1}{R}\sum_{\ell m}\left[
+		-q_{\ell m}\frac{\ell+1}{R^{\ell+1}}
+		+\ell Q_{\ell m}R^\ell\right]
+	Y_{\ell m}(\theta, \phi),
+	\intertext{with similarly defined coefficients for the boundary:}
+	c_{\ell m}&=\int \Phi(R,\theta',\phi')Y_{\ell m}^*(\theta',\phi')
+	\sin(\theta')d\theta'd\phi'\\
+	\Phi\big|_R&=\sum_{\ell m} c_{\ell m} Y_{\ell m}(\theta, \phi)\\
+	c_{\ell m}'&=\int \left.\frac{\partial\Phi}{\partial r}\right|_{R,\theta',\phi'}
+	Y_{\ell m}^*(\theta',\phi')\sin(\theta')d\theta'd\phi'\\
+	\left.\frac{\partial\Phi}{\partial r}\right|_R&=\sum_{\ell m}
+	c_{\ell m}' Y_{\ell m}(\theta, \phi)
+	\intertext{yield beautifully similar constraints:}
+	\Aboxed{R^{\ell+1}\big[\ell c_{\ell m}-R c_{\ell m}'\big]&=
+	\int Y_{\ell m}^*(\theta',\phi'){r'}^\ell
+	\rho(\bf x')d^3x',}
+\end{align}
+again with the last integral over only internal charges.
+
+\end{document}
