@@ -1,2 +1,13 @@
+## vs code developement environment
 .vscode/*
+
+## c++ build location
 build/*
+
+## Latex build:
+writing/*.aux
+writing/*.fdb_latexmk
+writing/*.fls
+writing/*.log
+writing/*.pdf
+writing/*.synctex.gz
