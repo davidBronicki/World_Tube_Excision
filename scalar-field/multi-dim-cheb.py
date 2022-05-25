@@ -528,24 +528,24 @@ def scalar_2D(
 		return 0.
 
 	def bump(x, x0, width):
-		r = (x - x0) / width * np.sqrt(np.pi / 2)
-		r = np.dot(r, r)
+		r = (x - x0) / width * np.pi / 2
+		r = np.sqrt(np.dot(r, r))
 		return np.cos(r)**2 if r < (np.pi / 2) else 0
 
 	def sourceFunct(x, t):
+		width = 0.25
+		amplitude = 0.5
+		amplitude /= width**2
+		omega = 2.0
+		radius = 0.3
+		sourceLocation = np.array([np.cos(t * omega), np.sin(t * omega)]) * radius
+		return (bump(x, sourceLocation, width) - bump(x, -sourceLocation, width)) * amplitude
+		
 		# width = 0.15
 		# amplitude = 0.1
 		# amplitude /= width**2
-		# omega = 0.
-		# radius = 0.2
-		# sourceLocation = np.array([np.cos(t * omega), np.sin(t * omega)]) * radius
-		# return (bump(x, np.array(sourceLocation), width) - bump(x, np.array(-sourceLocation), width)) * amplitude
-		
-		width = 0.15
-		amplitude = 0.1
-		amplitude /= width**2
-		sourceLocation = np.array([0.2, 0.])
-		return bump(x, sourceLocation, width) * amplitude
+		# sourceLocation = np.array([0.2, 0.])
+		# return bump(x, sourceLocation, width) * amplitude
 
 	chebEngine = ChebEngine(N)
 	engines = [chebEngine, chebEngine]
@@ -661,7 +661,7 @@ def scalar_2D(
 	for outputData in outputDataSet:
 		unpacked = np.reshape(outputData, (4, N + 1, N + 1))
 
-		phiModal = ModalRepresentation(engines, unpacked[1])
+		phiModal = ModalRepresentation(engines, unpacked[0])
 		# phiModal = ModalRepresentation(engines, unpacked[0])
 		phiFunct = modalToFunction(phiModal)
 		phiData = np.zeros((len(xData), len(yData)))
@@ -890,10 +890,12 @@ def chebTest():
 
 
 
-em_2D(animationDuration=8., N=8, simDuration=4., display_dx=0.1)
+# em_2D(animationDuration=8., N=8, simDuration=4., display_dx=0.1)
 
 # scalar_2D(animationDuration=8., N=8, simDuration=4.)
-# scalar_2D(animationDuration=5., N=16, simDuration=8.0, dt=0.1)
+
+scalar_2D(animationDuration=5., N=24, simDuration=5.0, dt=0.1)
+
 # scalar_2D(animationDuration=10., N=24, simDuration=1.5, display_dx=0.05, dt=0.03)
 
 # scalar_1D(animationDuration=6., N=8, simDuration=6.)
