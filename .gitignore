@@ -4,10 +4,16 @@
 ## c++ build location
 build/*
 
+## python
+*.pyc
+
 ## Latex build:
-writing/*.aux
-writing/*.fdb_latexmk
-writing/*.fls
-writing/*.log
-writing/*.pdf
-writing/*.synctex.gz
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.pdf
+*.synctex.gz
+
+## demo files
+*demo*
