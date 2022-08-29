@@ -1,6 +1,3 @@
-import enum
-from turtle import down
-from matplotlib import gridspec
 import numpy as np
 import scipy
 from typing import Callable, List, Union
@@ -80,8 +77,13 @@ class TensorFieldElement:
 
 		self.isView = self.data.base is not None
 
-	def copy(self) -> 'TensorFieldElement':
+	def copy(self):
 		return TensorFieldElement(self.spacialDimensions, self.data.copy())
+
+	def ownYourData(self):
+		if self.isView:
+			self.data = self.data.copy()
+			self.isView = False
 
 	@staticmethod
 	def tensorProduct(contractionString: str,
@@ -120,8 +122,11 @@ class TensorFieldElement:
 
 	@staticmethod
 	def defaultInit(
-			gridShape: List[int],
-			tensorShape: List[int]):
+		gridShape: List[int],
+		tensorShape: List[int]):
+
+		if len(gridShape) != 1 and tensorShape == (1,):
+			tensorShape = tensorShape[:-1]
 
 		return TensorFieldElement(
 			len(gridShape),
@@ -129,14 +134,18 @@ class TensorFieldElement:
 
 	@staticmethod
 	def functionInit(
-			gridShape: List[int],
-			fieldInitializer: Callable[[np.ndarray], np.ndarray]):
+		chebOrders: List[int],
+		fieldInitializer: Callable[[np.ndarray], np.ndarray]):
 
 		chebEngines: List[ChebEngine] = []
-		for axis in gridShape:
+		for axis in chebOrders:
 			chebEngines.append(ChebEngine(axis))
-		tensorShape = fieldInitializer(np.zeros(len(gridShape))).shape
 		gridShape = tuple([engine.order + 1 for engine in chebEngines])
+		tensorShape = fieldInitializer(np.zeros(len(gridShape))).shape
+
+		if len(chebOrders) != 1 and tensorShape == (1,):
+			tensorShape = tensorShape[:-1]
+
 		data = np.zeros((np.prod(gridShape),) + tensorShape)
 
 		dim = len(chebEngines)
@@ -215,12 +224,20 @@ class TensorFieldElement:
 				self.data * other)
 	__rmul__ = __mul__
 
-	def __truediv__(self, scalar: Union[int, float]):
-		if (scalar == 0 or scalar == 0.):
+	def __truediv__(self, other: Union['TensorFieldElement', int, float]):
+		if type(other) == TensorFieldElement:
+			assert(other.rank == 0), 'division must be with scalar. This is nonsense'
+			return TensorFieldElement(
+				self.spacialDimensions,
+				#to make the broadcast work correctly, we reverse all axes.
+				#this makes the broadcast match the first axes going forward
+				#instead of the last axes going backwards as is default.
+				np.transpose(np.transpose(self.data) / np.transpose(other.data)))
+		if (other == 0):
 			raise(ZeroDivisionError('tensor divided by zero scalar'))
 		return TensorFieldElement(
 			self.spacialDimensions,
-			self.data / scalar)
+			self.data / other)
 
 	def __add__(self, other: 'TensorFieldElement'):
 		return TensorFieldElement(
@@ -298,7 +315,36 @@ class TensorFieldElement:
 		dataView = self.data[tuple(slice)]
 		return TensorFieldElement(self.spacialDimensions - 1, dataView)
 
-	def setData(self, settingRule: str, other: 'TensorFieldElement'):
+	@staticmethod
+	def _createPermutationList(settingRule, requiredLength, initialSlice):
+		if settingRule == '':
+			return list(range(requiredLength)), initialSlice
+		outputLabelling, inputLabelling = tuple(settingRule.split('<-'))
+		assert(len(inputLabelling) == requiredLength), 'tensor indexed incorrectly'
+		newOutputLabelling = ''
+		for i, label in enumerate(outputLabelling):
+			if label in inputLabelling:
+				assert(label not in newOutputLabelling), "tensor double indexing"
+				newOutputLabelling += label
+			elif label == '0': # left slice
+				initialSlice[i] = -1
+			else: # right slice
+				assert(label == '1'), "unrecognized token or indices"
+				initialSlice[i] = 0
+
+		dataPermutation = list(range(requiredLength))
+
+		for i, label in enumerate(newOutputLabelling):
+			for j, label2 in enumerate(inputLabelling):
+				if label == label2:
+					dataPermutation[i] = j
+		
+		return dataPermutation, initialSlice
+
+	def addData(self,
+		other: 'TensorFieldElement',
+		tensorSettingRule = '',
+		gridSettingRule = ''):
 		"""
 		settingRule: empty for no change to dimensions,
 			otherwise other's dimensions on left of arrow (->)
@@ -307,8 +353,6 @@ class TensorFieldElement:
 			slices can be set on self via specifying dimensions.
 
 			e.g. "" (identical data shapes)
-			# "abc->bca" (permute dimensions)
-			# "ijk->j0ki1" (set a slice on self)
 			"abc<-cab" (permute dimensions)
 			"i0jk<-kij" (set a left boundary on self)
 			"i1jk<-kij" (set a right boundary on self)
@@ -316,33 +360,33 @@ class TensorFieldElement:
 
 		# assert(False), 'Tensor Field Setter Not Implemented'
 
-		if (settingRule == ""):
+		if (tensorSettingRule == '' and gridSettingRule == ''):
 			self.data[:] = other.data
 
-		# inputLabelling, outputLabelling = tuple(settingRule.split('->'))
-		outputLabelling, inputLabelling = tuple(settingRule.split('<-'))
-		newOutputLabelling = ''
-		firstOutputSlice = list(self._fullSlice)
-		for i, label in enumerate(outputLabelling):
-			if label in inputLabelling:
-				assert(label not in newOutputLabelling), "double indexing in setting function"
-				newOutputLabelling += label
-			elif label == '0':
-				firstOutputSlice[i] = -1
-			else:
-				assert(label == '1'), "unrecognized token or indices don't match in setting function"
-				firstOutputSlice[i] = 0
+		tensorPerm, tensorSlice = TensorFieldElement._createPermutationList(
+			tensorSettingRule,
+			other.rank,
+			self._fullSlice[self.spacialDimensions:])
+		gridPerm, gridSlice = TensorFieldElement._createPermutationList(
+			gridSettingRule,
+			other.spacialDimensions,
+			self._fullSlice[:self.spacialDimensions])
 
-		assert(len(newOutputLabelling) == len(inputLabelling)), "indices don't match in setting function"
+		for i in range(len(tensorPerm)):
+			tensorPerm[i] += len(gridPerm)
 
-		dataView = self.data[tuple(firstOutputSlice)]
-		dataPermutation = list(range(len(inputLabelling) + self.rank))
+		dataPermutation = tuple(gridPerm + tensorPerm)
+		outputSlice = tuple(gridSlice + tensorSlice)
 
-		for i, label in enumerate(newOutputLabelling):
-			for j, label2 in enumerate(inputLabelling):
-				if label == label2:
-					dataPermutation[i] = j
+		dataView = self.data[outputSlice]
+		assert(dataView.base is not None), 'view not made'
 
-		dataView[:] = np.transpose(other.data, tuple(dataPermutation))
+		dataView[:] += np.transpose(other.data, tuple(dataPermutation))
 
-		
+	def setData(self, other: 'TensorFieldElement', settingRule = ''):
+		self.data = np.zeros(self.data.shape)
+		self.addData(other, settingRule)
+
+	def sqrt_scalar(self):
+		assert(self.rank == 0), 'sqrt only allowed for scalar'
+		return TensorFieldElement(self.spacialDimensions, np.sqrt(self.data))
