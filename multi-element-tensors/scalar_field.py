@@ -12,8 +12,6 @@ import state_bundle as bundles
 
 from typing import List
 
-first = True
-
 def scalar_field(
 	N = 8,
 	animationDuration = 2.,
@@ -120,6 +118,7 @@ def scalar_field(
 
 		outgoing = -elements.TensorFieldElement.tensorProduct(
 			'i,j,ij->', gammaField, orthoVectorField, invMetricField)
+
 		gammaField.addData(elements.TensorFieldElement.tensorProduct(
 			',j->j', outgoing, orthoVectorField))
 		outgoing.addData(piField)
@@ -129,7 +128,6 @@ def scalar_field(
 		piField.setData(outgoing / 2)
 
 	def stateDot(time, stateVector):
-		global first
 		currentState.canonicalUnpack(stateVector)
 		
 		for boundary in currentState.boundaries:
@@ -138,7 +136,7 @@ def scalar_field(
 		# metricField = currentState.tensorFields[0]
 		invMetricField = currentState.tensorFields[1]
 		christoffelField = currentState.tensorFields[2]
-		phiField = currentState.tensorFields[3]
+		# phiField = currentState.tensorFields[3]
 		piField = currentState.tensorFields[4]
 		gammaField = currentState.tensorFields[5]
 
@@ -147,41 +145,12 @@ def scalar_field(
 		phiDot = piField.copy()
 		piDot = fields.TensorField.tensorProduct('ij,ij->',gradGamma,invMetricField)
 
-# correct
-# [[ 0.          0.          4.71987059  4.71987059  0.          0.        ]
-#  [ 0.          0.          3.15928862  3.15928862  0.          0.        ]
-#  [ 4.71987059  3.15928862 -3.45872384 -3.45872384  3.15928862  4.71987059]
-#  [ 4.71987059  3.15928862 -3.45872384 -3.45872384  3.15928862  4.71987059]
-#  [ 0.          0.          3.15928862  3.15928862  0.          0.        ]
-#  [ 0.          0.          4.71987059  4.71987059  0.          0.        ]]
-
-# incorrect
-# [[ 0.          0.          2.09048418  2.09048418  0.          0.        ]
-#  [ 0.          0.          2.47516879  2.47516879  0.          0.        ]
-#  [ 2.09048418  2.47516879 -3.25910036 -3.25910036  2.47516879  2.09048418]
-#  [ 2.09048418  2.47516879 -3.25910036 -3.25910036  2.47516879  2.09048418]
-#  [ 0.          0.          2.47516879  2.47516879  0.          0.        ]
-#  [ 0.          0.          2.09048418  2.09048418  0.          0.        ]]
-
 		gammaDot = fields.trueGradient(piField, christoffelField, 0)
-
-		if first:
-			print(phiField.elements[0].data)
-			print(gammaField.elements[0].data[:,:,0])
-			print(gammaField.elements[0].data[:,:,1])
-			# print(phiDot.elements[0].data)
-			print(piDot.elements[0].data)
-			# print(gammaDot.elements[0].data[:,:,0])
-			# print(gammaDot.elements[0].data[:,:,1])
-			print(gradGamma.elements[0].data[:,:,0,0])
-			print(gradGamma.elements[0].data[:,:,1,1])
-			first = False
 
 		stateDot = bundles.StateBundle(
 			[phiDot, piDot, gammaDot])
 			
 		return stateDot.canonicalPack()
-	stateDot.first = True
 
 	t1 = time.time()
 
@@ -201,81 +170,13 @@ def scalar_field(
 	piField = currentState.tensorFields[4]
 	gammaField = currentState.tensorFields[5]
 
-	# print(phiField.elements[0].data)
-	# print(piField.elements[0].data)
-	# print(gammaField.elements[0].data[:,:,0])
-	# print(gammaField.elements[0].data[:,:,1])
+	print(phiField.elements[0].data)
+	print(piField.elements[0].data)
+	print(gammaField.elements[0].data[:,:,0])
+	print(gammaField.elements[0].data[:,:,1])
 
 
 
 scalar_field(
-	N=5,
-	simDuration=0.11)
-# scalar_field(
-# 	N=24,
-# 	simDuration=6.
-# )
-
-	# solutionSet = scipy.integrate.solve_ivp(
-	# 	stateDot, [tData[0], tData[-1]], initState, dense_output=True)
-
-	# t1 = time.time()
-	# print("simulation completed in " + str(t1 - t0) + " seconds")
-	# t0 = time.time()
-
-	# outputDataSet = np.zeros((len(tData), len(initState)))
-
-	# for i in range(len(tData)):
-	# 	outputDataSet[i] = solutionSet.sol(tData[i])
-
-	# solver_tData = solutionSet.t
-	# dtList = []
-	# for i in range(1, len(solver_tData)):
-	# 	dtList.append(solver_tData[i] - solver_tData[i - 1])
-	# print("average deltaT: " + str(sum(dtList) / len(dtList)))
-
-	# # tData = solutionSet.t
-	# # yDataSet = np.transpose(solutionSet.y)
-	# phiDataSet = []
-	# # piDataSet = []
-	# # gamma_xDataSet = []
-	# # gamma_yDataSet = []
-
-	# preComputedArray = PreCompute(engines, [xData, yData])
-	# for outputData in outputDataSet:
-	# 	unpacked = np.reshape(outputData, (scalarCount, N + 1, N + 1))
-
-	# 	phiModal = ModalRepresentation(engines, unpacked[0])
-	# 	# phiModal = ModalRepresentation(engines, unpacked[0])
-	# 	phiFunct = modalToFunction(phiModal)
-	# 	phiData = np.zeros((len(xData), len(yData)))
-	# 	for i in range(len(xData)):
-	# 		for j in range(len(yData)):
-	# 			phiData[i][j] = phiFunct(np.array([i, j]), preComputedArray)
-	# 	phiDataSet.append(phiData)
-	
-	# t1 = time.time()
-	# print("data evaluated in " + str(t1 - t0) + " seconds")
-
-	# minVal = -1.
-	# maxVal = 1.
-
-	# fig = plt.figure()
-	# # ax = fig.add_subplot(111, projection='3d')
-	# ax = fig.add_subplot(111,
-	# 	projection='3d',
-	# 	autoscale_on=False,
-	# 	xlim=(-1., 1.),
-	# 	ylim=(-1., 1.),
-	# 	zlim=(minVal-0.01, maxVal+0.01))
-	# plot = ax.plot_surface(meshX,meshY,phiDataSet[0])
-
-	# def animate(frame):
-	# 	ax.collections.clear()
-	# 	plot = ax.plot_surface(meshX,meshY,phiDataSet[frame], color='blue')
-	
-	# ani = animation.FuncAnimation(
-	# 	fig, animate, len(tData),
-	# 	interval = animationDuration * 1000 / len(tData)
-	# )
-	# plt.show()
+	N=24,
+	simDuration=3.)

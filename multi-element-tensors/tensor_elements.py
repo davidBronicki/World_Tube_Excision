@@ -100,14 +100,6 @@ class TensorFieldElement:
 		assert(len(inputIndexLists) == len(tensorElements)
 			   ), 'must index each input tensor'
 
-		# downIndexCount = 0
-		# for element, indexString in zip(tensorElements, inputIndexLists):
-		# 	for i in range(len(indexString)):
-		# 		# if this is a free index (in output index list)
-		# 		# and is a down index, then increment the down index counter
-		# 		if (indexString[i] in inputOutputList[1] and len(indexString) - i <= element.downIndices):
-		# 			downIndexCount += 1
-
 		# setup for broadcasting
 		for i in range(len(inputIndexLists)):
 			inputIndexLists[i] = '...'+inputIndexLists[i]
@@ -346,23 +338,25 @@ class TensorFieldElement:
 		tensorSettingRule = '',
 		gridSettingRule = ''):
 		"""
-		settingRule: empty for no change to dimensions,
-			otherwise other's dimensions on left of arrow (->)
-			and self's dimensions on right.
-			All of other's dimensions must be used, but
-			slices can be set on self via specifying dimensions.
+		settingRule: empty for no change to dimensions/indices,
+			otherwise other's dimensions/indices on right of arrow (<-)
+			and self's dimensions/indices on left.
+			All of other's dimensions/indices must be used, but
+			slices can be modified on self via specifying dimensions/indices.
 
 			e.g. "" (identical data shapes)
 			"abc<-cab" (permute dimensions)
-			"i0jk<-kij" (set a left boundary on self)
-			"i1jk<-kij" (set a right boundary on self)
+			"i0jk<-kij" (add to a left boundary on self)
+			"i1jk<-kij" (add to a right boundary on self)
 		"""
 
 		# assert(False), 'Tensor Field Setter Not Implemented'
 
 		if (tensorSettingRule == '' and gridSettingRule == ''):
-			self.data[:] = other.data
+			self.data[:] += other.data
+			return
 
+		# TODO: should be able to take arbitrary slice or no slice for indices
 		tensorPerm, tensorSlice = TensorFieldElement._createPermutationList(
 			tensorSettingRule,
 			other.rank,
@@ -381,11 +375,27 @@ class TensorFieldElement:
 		dataView = self.data[outputSlice]
 		assert(dataView.base is not None), 'view not made'
 
-		dataView[:] += np.transpose(other.data, tuple(dataPermutation))
+		dataView[:] += np.transpose(other.data, dataPermutation)
 
-	def setData(self, other: 'TensorFieldElement', settingRule = ''):
-		self.data = np.zeros(self.data.shape)
-		self.addData(other, settingRule)
+	def setData(self,
+		other: 'TensorFieldElement',
+		tensorSettingRule = '',
+		gridSettingRule = ''):
+		"""
+		settingRule: empty for no change to dimensions/indices,
+			otherwise other's dimensions/indices on right of arrow (<-)
+			and self's dimensions/indices on left.
+			All of other's dimensions/indices must be used, but
+			slices can be set on self via specifying dimensions/indices.
+
+			e.g. "" (identical data shapes)
+			"abc<-cab" (permute dimensions)
+			"i0jk<-kij" (set a left boundary on self)
+			"i1jk<-kij" (set a right boundary on self)
+		"""
+
+		self.data[:] = np.zeros(self.data.shape)
+		self.addData(other, tensorSettingRule, gridSettingRule)
 
 	def sqrt_scalar(self):
 		assert(self.rank == 0), 'sqrt only allowed for scalar'
