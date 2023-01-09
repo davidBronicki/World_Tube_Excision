@@ -1,5 +1,7 @@
+from asyncio import format_helpers
+from imp import init_builtin, init_frozen
 import numpy as np
-from typing import Callable, Union
+from typing import Callable, Union, List, Tuple
 import types
 
 
@@ -14,17 +16,21 @@ class CoordinateFrame:
 
 		output.setMap(lambda x: x)
 		output.setReverseMap(lambda x: x)
-		output.setJacobian(lambda x: np.identity(2))
-		output.setInverseJacobian(lambda x: np.identity(2))
-		output.setGradJacobian(lambda x: np.zeros((2,2,2)))
+		output.setJacobian(lambda x: np.identity(self.dim))
+		output.setInverseJacobian(lambda x: np.identity(self.dim))
+		output.setGradJacobian(lambda x: np.zeros((
+			self.dim, self.dim, self.dim)))
 		output.setInverse(output)
 
 		return output
 
+	def __str__(self):
+		return self.name + ' (' + str(self.dim) + ' dim coord frame)'
+		# return 'Frame: ' + self.name + '  Dim: ' + str(self.dim)
 
 class CoordinatePos:
 	def __init__(self, frame: CoordinateFrame, coords: np.ndarray):
-		assert(coords.shape == (frame.dim,)), 'incorrect coordinate count'
+		assert(coords.shape == (frame.dim,)), 'incorrect coordinate count. expected ' + str((frame.dim,)) + ' got ' + str(coords.shape)
 		self.frame = frame
 		self.coords = coords
 
@@ -32,11 +38,14 @@ class CoordinatePos:
 		return 'Coordinate position not in correct frame. Coordinate in '+\
 			self.frame.name + ' but was asserted to be in ' + otherFrame.name
 
-	def inFrame(self,
+	def assertInFrame(self,
 		frame: CoordinateFrame):
 
-		assert(frame is self.frame), _wrongFrameMessage(frame)
+		assert(frame is self.frame), self._wrongFrameMessage(frame)
 
+	def __str__(self):
+		return str(self.coords) + ' in ' + str(self.frame)
+		# return 'Coordinate: ' + str(self.coords) + ' in ' + self.frame.name + ' frame'
 
 class FramedTensor:
 	def __init__(self,
@@ -64,12 +73,24 @@ class FramedTensor:
 		newPos = transformation.map(self.pos)
 		newData = self.data.copy()
 		for i in range(self.upIndices):
-			newData = np.tensordot(newData, jac.data, ([0], [0]))
+			newData = np.tensordot(newData, jac.data, ([0], [1]))
 		for i in range(self.downIndices):
-			newData = np.tensordot(newData, invJac.data, ([self.upIndices], [0]))
+			newData = np.tensordot(newData, invJac.data, ([0], [0]))
 
 		return FramedTensor(newData, newPos, self.upIndices)
 
+	def _wrongFrameMessage(self, otherFrame: CoordinateFrame):
+		return 'Framed tensor not in correct frame. Tensor in '+\
+			self.frame.name + ' but was asserted to be in ' + otherFrame.name
+
+	def assertInFrame(self,
+		frame: CoordinateFrame):
+
+		assert(frame is self.frame), self._wrongFrameMessage(frame)
+
+	def __str__(self):
+		return 'Tensor at ' + str(self.pos) + ':\n' + str(self.data)
+		# return 'Tensor: ' + str(self.data) + ' at ' + 
 
 class Transformation:
 	def __init__(self,
@@ -88,13 +109,13 @@ class Transformation:
 
 	def setMap(self, mapFunct: Callable[[np.ndarray], np.ndarray]):
 		def newMap(_self, position: CoordinatePos) -> CoordinatePos:
-			position.inFrame(self.initialFrame)
+			position.assertInFrame(self.initialFrame)
 			return CoordinatePos(self.finalFrame, mapFunct(position.coords))
 		self.map = types.MethodType(newMap, self)
 
 	def setReverseMap(self, mapFunct: Callable[[np.ndarray], np.ndarray]):
 		def newMap(_self, position: CoordinatePos) -> CoordinatePos:
-			position.inFrame(self.finalFrame)
+			position.assertInFrame(self.finalFrame)
 			return CoordinatePos(self.initialFrame, mapFunct(position.coords))
 		self.reverseMap = types.MethodType(newMap, self)
 
@@ -103,13 +124,13 @@ class Transformation:
 					setInverse=False):
 
 		def newJacobian(_self, position: CoordinatePos) -> FramedTensor:
-			position.inFrame(self.initialFrame)
+			position.assertInFrame(self.initialFrame)
 			return FramedTensor(jacobianFunct(position.coords), position, 1)
 		self.jacobian = types.MethodType(newJacobian, self)
 
 		if setInverse:
 			def newInvJacobian(_self, position: CoordinatePos) -> FramedTensor:
-				position.inFrame(self.initialFrame,
+				position.assertInFrame(self.initialFrame,
 								 'incorrect coordinate frame')
 				return FramedTensor(np.linalg.inv(jacobianFunct(position.coords)), position, 1)
 			self.inverseJacobian = types.MethodType(newInvJacobian, self)
@@ -119,20 +140,20 @@ class Transformation:
 						   setJacobian=False):
 
 		def newInvJacobian(_self, position: CoordinatePos) -> FramedTensor:
-			position.inFrame(self.initialFrame)
+			position.assertInFrame(self.initialFrame)
 			return FramedTensor(invJacobianFunct(position.coords), position, 1)
 		self.inverseJacobian = types.MethodType(newInvJacobian, self)
 
 		if setJacobian:
 			def newJacobian(_self, position: CoordinatePos) -> FramedTensor:
-				position.inFrame(self.initialFrame,
+				position.assertInFrame(self.initialFrame,
 								 'incorrect coordinate frame')
 				return FramedTensor(np.linalg.inv(invJacobianFunct(position.coords)), position, 1)
 			self.jacobian = types.MethodType(newJacobian, self)
 
 	def setGradJacobian(self, gradJacFunct: Callable[[np.ndarray], np.ndarray]):
 		def newGradJac(_self, position: CoordinatePos) -> FramedTensor:
-			position.inFrame(self.initialFrame)
+			position.assertInFrame(self.initialFrame)
 			return FramedTensor(gradJacFunct(position.coords), position, 1)
 		self.gradJacobian = types.MethodType(newGradJac, self)
 
@@ -164,6 +185,7 @@ class Transformation:
 		output.gradJacobian = types.MethodType(
 			reversedGradJacobian,
 			output)
+		output.setInverse(self)
 		return output
 
 	def compose(self, other: 'Transformation'):
@@ -222,7 +244,7 @@ class Transformation:
 			'user left jacobian undefined: must be set manually'))
 
 	def inverseJacobian(self, coordinates: CoordinatePos) -> FramedTensor:
-		coordinates.inFrame(self.initialFrame)
+		coordinates.assertInFrame(self.initialFrame)
 		return np.linalg.inv(self.jacobian(coordinates))
 
 	def gradJacobian(self, coordinates: CoordinatePos) -> FramedTensor:
@@ -232,14 +254,202 @@ class Transformation:
 
 	def transformTensor(self, tensor: FramedTensor):
 		return tensor.transform(self)
-		# jac = self.jacobian(tensor.pos)
-		# invJac = self.inverseJacobian(tensor.pos)
 
-		# newPos = self.map(tensor.pos)
-		# newData = tensor.data.copy()
-		# for i in range(tensor.upIndices):
-		# 	newData = np.tensordot(newData, jac, ([i], [0]))
-		# for i in range(tensor.downIndices):
-		# 	newData = np.tensordot(newData, invJac, ([tensor.upIndices + i], [0]))
+class TranslationLinearTransformation(Transformation):
+	"""
+	Special implementation of Transformation with special composition rules
+	and built in true inverse.
+	"""
+	def __init__(self,
+		initialFrame: CoordinateFrame,
+		finalFrame: CoordinateFrame,
+		jacobian: np.ndarray,
+		translation: np.ndarray):
 
-		# return FramedTensor(newData, newPos, tensor.upIndices)
+		dim = initialFrame.dim
+		assert(jacobian.shape == (dim, dim)), 'jacobian of incorrect shape. Expected'\
+			+ str((dim, dim)) + ' but got ' + str(jacobian.shape)
+		assert(translation.shape == (dim,)), 'translation of incorrect shape. Expected '\
+			+ str((dim,)) + ' but got ' + str(translation.shape)
+		super().__init__(initialFrame, finalFrame)
+		self._jacobian = jacobian
+		self._invJac: np.ndarray = np.linalg.inv(jacobian)
+		self._translation = translation
+		self._invTrans: np.ndarray = -np.dot(self._invJac, translation)
+
+		inverseTransform = Transformation(finalFrame, initialFrame)
+		inverseTransform._jacobian = self._invJac
+		inverseTransform._invJac = self._jacobian
+		inverseTransform._translation = self._invTrans
+		inverseTransform._invTrans = self._translation
+		inverseTransform.__class__ = TranslationLinearTransformation
+
+		self.setInverse(inverseTransform)
+		inverseTransform.setInverse(self)
+
+	def map(self, coordinates: CoordinatePos) -> CoordinatePos:
+		coordinates.assertInFrame(self.initialFrame)
+		return CoordinatePos(self.finalFrame, np.dot(self._jacobian, coordinates.coords) + self._translation)
+
+	def reverseMap(self, coordinates: CoordinatePos) -> CoordinatePos:
+		coordinates.assertInFrame(self.finalFrame)
+		return CoordinatePos(self.initialFrame, np.dot(self._invJac, coordinates.coords) + self._invTrans)
+
+	def jacobian(self, coordinates: CoordinatePos) -> FramedTensor:
+		coordinates.assertInFrame(self.initialFrame)
+		return FramedTensor(self._jacobian, coordinates, 1)
+
+	def inverseJacobian(self, coordinates: CoordinatePos) -> FramedTensor:
+		coordinates.assertInFrame(self.initialFrame)
+		return FramedTensor(self._invJac, coordinates, 1)
+
+	def gradJacobian(self, coordinates: CoordinatePos) -> FramedTensor:
+		coordinates.assertInFrame(self.initialFrame)
+		return FramedTensor(np.zeros((self.dim, self.dim, self.dim)), coordinates, 1)
+
+	def compose(self, other: Union[Transformation, 'TranslationLinearTransformation']):
+		if type(other) is not TranslationLinearTransformation:
+			return super().compose(other)
+		assert(self.initialFrame is other.finalFrame), 'incompatable composition'
+		return TranslationLinearTransformation(
+			other.initialFrame,
+			self.finalFrame,
+			np.dot(self._jacobian, other._jacobian),
+			np.dot(self._jacobian, other._translation) + self._translation)
+
+def compose(*transformations: Transformation):
+	output = transformations[0]
+	for transformation in transformations[1:]:
+		output = output.compose(transformation)
+	return output
+
+class Rectangle:
+	def __init__(self, point1: np.ndarray, point2: np.ndarray):
+		self.lowerPoint: np.ndarray = np.array([min(a, b) for a, b in zip(point1, point2)])
+		self.upperPoint: np.ndarray = np.array([max(a, b) for a, b in zip(point1, point2)])
+		self.dimensions: np.ndarray = self.upperPoint - self.lowerPoint
+		self.width: float = self.dimensions[0]
+		self.height: float = self.dimensions[1]
+
+def rectilinearTransform(
+	initialFrame: CoordinateFrame,
+	finalFrame: CoordinateFrame,
+	initialRect: Rectangle,
+	finalRect: Rectangle):
+
+	jac = np.diag(finalRect.dimensions / initialRect.dimensions)
+	translation = -np.dot(jac, initialRect.lowerPoint) + finalRect.lowerPoint
+
+	return TranslationLinearTransformation(
+		initialFrame, finalFrame, jac, translation)
+
+def scalingTransform(
+	initialFrame: CoordinateFrame,
+	finalFrame: CoordinateFrame,
+	scaling: Union[np.ndarray, List[float], float]):
+
+	dim = initialFrame.dim
+
+	if type(scaling) is float:
+		scaling = dim * [scaling]
+	scaling = np.array(scaling)
+	return TranslationLinearTransformation(
+		initialFrame,
+		finalFrame,
+		np.diag(scaling),
+		np.zeros(dim))
+
+def planarRotation(
+	initialFrame: CoordinateFrame,
+	finalFrame: CoordinateFrame,
+	axis1: int,
+	axis2: int,
+	angle: float):
+
+	jac = np.identity(initialFrame.dim)
+	jac[axis1, axis1] = np.cos(angle)
+	jac[axis2, axis2] = np.cos(angle)
+	jac[axis1, axis2] =-np.sin(angle)
+	jac[axis2, axis1] = np.sin(angle)
+
+	return TranslationLinearTransformation(
+		initialFrame, finalFrame, jac, np.zeros(initialFrame.dim))
+
+def translation(
+	initialFrame: CoordinateFrame,
+	finalFrame: CoordinateFrame,
+	translation: np.ndarray):
+
+	return TranslationLinearTransformation(
+		initialFrame, finalFrame, np.identity(initialFrame.dim), translation)
+
+def originTranslation(
+	initialFrame: CoordinateFrame,
+	finalFrame: CoordinateFrame,
+	translation: np.ndarray):
+
+	return TranslationLinearTransformation(
+		initialFrame, finalFrame, np.identity(initialFrame.dim), -translation)
+
+def trapezoidalTransformation(
+	initialFrame: CoordinateFrame,
+	finalFrame: CoordinateFrame,
+	scalingFactors: Union[np.ndarray, List[float], float]):
+	"""
+	maps unit (square)/(hypercube) to a (trapezoid)/(shape with two
+	parallel hypersurfaces with some rectilinear scaling between them.
+	"""
+	
+	dim = initialFrame.dim
+
+	if type(scalingFactors) is float:
+		scalingFactors = [scalingFactors] * (dim - 1)
+	scalingFactors = np.array(scalingFactors)
+	assert(scalingFactors.shape == (dim - 1,)), 'dim mismatch'
+	
+	scalingVector = np.array(list(scalingFactors) + [1]) - 1
+
+	# TODO: add gradJac
+
+	def scaleMultiplier(z: float):
+		return (1 + scalingVector * z)
+
+	def backwardMap(y: np.ndarray):
+		return y / scaleMultiplier(y[-1])
+
+	def forwardMap(x: np.ndarray):
+		return x * scaleMultiplier(x[-1])
+
+	def jacOfX(x: np.ndarray):
+		output = np.diag(scaleMultiplier(x[-1]))
+		output[:,-1] += scalingVector * x
+		return output
+
+	def invJacOfY(y: np.ndarray):
+		scaling = scaleMultiplier(y[-1])
+		output = np.diag(1. / scaling)
+		output[:,-1] -= y * scalingVector / scaling**2
+		return output
+
+	def jacOfY(y: np.ndarray):
+		return jacOfX(backwardMap(y))
+
+	def invJacOfX(x: np.ndarray):
+		return invJacOfY(forwardMap(x))
+
+	forward = Transformation(initialFrame, finalFrame)
+	forward.setMap(forwardMap)
+	forward.setReverseMap(backwardMap)
+	forward.setJacobian(jacOfX)
+	forward.setInverseJacobian(invJacOfX)
+
+	backward = Transformation(finalFrame, initialFrame)
+	backward.setMap(backwardMap)
+	backward.setReverseMap(forwardMap)
+	backward.setJacobian(invJacOfY)
+	backward.setInverseJacobian(jacOfY)
+	
+	forward.setInverse(backward)
+	backward.setInverse(forward)
+
+	return forward

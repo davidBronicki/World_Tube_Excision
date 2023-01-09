@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
-from typing import Callable, List, Union
+import grids
+from typing import Callable, List, Union, Tuple
 
 class ChebEngine:
 	def __init__(self, order: int):
@@ -51,8 +52,8 @@ class PreCompute:
 			self.preComputedValues.append(engine.preCompute(xList))
 	
 	def __call__(self,
-		orderTuple: Union[tuple, List[int], np.ndarray],
-		indexTuple: Union[tuple, List[int], np.ndarray]):
+		orderTuple: Union[Tuple[int], List[int], np.ndarray],
+		indexTuple: Union[Tuple[int], List[int], np.ndarray]):
 
 		output = 1
 		for order, index, computed in zip(orderTuple, indexTuple, self.preComputedValues):
@@ -155,19 +156,17 @@ class TensorFieldElement:
 
 		return TensorFieldElement(dim, data)
 
-	def toFunction(self) -> Callable[[np.ndarray, Union[None, PreCompute]], float]:
-
-		gridShape = self.data.shape[self.spacialDimensions:]
-		tensorShape = self.data.shape[:self.spacialDimensions]
+	def spectralData(self) -> np.ndarray:
+		gridShape = self.data.shape[:self.spacialDimensions]
 
 		totalSamplePoints = np.prod(gridShape)
 		indices = np.indices(gridShape)
 		indices = np.transpose(np.reshape(
 			indices, (self.spacialDimensions, totalSamplePoints)))
 
-		chebEngines = []
+		chebEngines: List[ChebEngine] = []
 		for axis in gridShape:
-			chebEngines.append(ChebEngine(axis))
+			chebEngines.append(ChebEngine(axis - 1))
 
 		# change to spectral
 
@@ -182,22 +181,32 @@ class TensorFieldElement:
 				if indexList[i] == 0 or indexList[i] == chebEngines[i].N:
 					specData[tuple(indexList)] /= 2
 
-		def outputFunct(position: np.ndarray, preComputeArray: Union[None, PreCompute] = None) -> float:
-			if preComputeArray == None:
-				output = np.zeros(tensorShape)
-				for indexList in indices:
-					modeContribution = np.array(specData[tuple(indexList)])
-					for i in range(self.spacialDimensions):
-						modeContribution *= chebEngines[i].eval(
-							indexList[i], position[i])
-					output += modeContribution
-				return output
-			else:
-				output = np.zeros(tensorShape)
-				for indexList in indices:
-					output += specData[tuple(indexList)] * \
-						preComputeArray(indexList, position)
-				return output
+		return specData
+
+	def toFunction(self) -> Callable[[np.ndarray], float]:
+		specData = self.spectralData()
+
+		gridShape = self.data.shape[:self.spacialDimensions]
+		tensorShape = self.data.shape[self.spacialDimensions:]
+
+		totalSamplePoints = np.prod(gridShape)
+		indices = np.indices(gridShape)
+		indices = np.transpose(np.reshape(
+			indices, (self.spacialDimensions, totalSamplePoints)))
+
+		chebEngines: List[ChebEngine] = []
+		for axis in gridShape:
+			chebEngines.append(ChebEngine(axis - 1))
+
+		def outputFunct(position: np.ndarray) -> float:
+			output = np.zeros(tensorShape)
+			for indexList in indices:
+				modeContribution = np.array(specData[tuple(indexList)])
+				for i in range(self.spacialDimensions):
+					modeContribution *= chebEngines[i].eval(
+						indexList[i], position[i])
+				output += modeContribution
+			return output
 
 		return outputFunct
 
@@ -308,28 +317,67 @@ class TensorFieldElement:
 		return TensorFieldElement(self.spacialDimensions - 1, dataView)
 
 	@staticmethod
-	def _createPermutationList(settingRule, requiredLength, initialSlice):
+	def _createPermutationList(
+		settingRule: str,
+		requiredLength: int,
+		initialSlice: List[slice]):
 		if settingRule == '':
 			return list(range(requiredLength)), initialSlice
 		outputLabelling, inputLabelling = tuple(settingRule.split('<-'))
-		assert(len(inputLabelling) == requiredLength), 'tensor indexed incorrectly'
+		assert(len(inputLabelling.replace('-', '')) == requiredLength), 'tensor indexed incorrectly'
 		newOutputLabelling = ''
-		for i, label in enumerate(outputLabelling):
+		negDirection = False
+		i = 0
+		for label in outputLabelling:
+			if label == '-':
+				negDirection = True
+				continue
 			if label in inputLabelling:
 				assert(label not in newOutputLabelling), "tensor double indexing"
 				newOutputLabelling += label
+				if negDirection:
+					oldStep = initialSlice[i].step
+					oldStart = initialSlice[i].start
+					oldStop = initialSlice[i].stop
+					oldStep = 1 if oldStep is None else oldStep
+					oldStart = None if oldStart == 0 else oldStart
+					oldStop = None if oldStop == 0 else oldStop
+					newStep = oldStep * -1
+					newStart = None if oldStop is None else oldStop - oldStep
+					newStop = None if oldStart is None else oldStart - oldStep
+					initialSlice[i] = slice(newStart, newStop, newStep)
 			elif label == '0': # left slice
 				initialSlice[i] = -1
 			else: # right slice
 				assert(label == '1'), "unrecognized token or indices"
 				initialSlice[i] = 0
+			negDirection = False
+			i += 1
 
 		dataPermutation = list(range(requiredLength))
 
 		for i, label in enumerate(newOutputLabelling):
-			for j, label2 in enumerate(inputLabelling):
+			negDirection = False
+			j = 0
+			for label2 in inputLabelling:
+				if label2 == '-':
+					negDirection = True
+					continue
 				if label == label2:
+					if negDirection:
+						oldStep = initialSlice[i].step
+						oldStart = initialSlice[i].start
+						oldStop = initialSlice[i].stop
+						oldStep = 1 if oldStep is None else oldStep
+						oldStart = None if oldStart == 0 else oldStart
+						oldStop = None if oldStop == 0 else oldStop
+						newStep = oldStep * -1
+						newStart = None if oldStop is None else oldStop - oldStep
+						newStop = None if oldStart is None else oldStart - oldStep
+						initialSlice[i] = slice(newStart, newStop, newStep)
 					dataPermutation[i] = j
+				negDirection = False
+				j += 1
 		
 		return dataPermutation, initialSlice
 
@@ -360,11 +408,11 @@ class TensorFieldElement:
 		tensorPerm, tensorSlice = TensorFieldElement._createPermutationList(
 			tensorSettingRule,
 			other.rank,
-			self._fullSlice[self.spacialDimensions:])
+			list(self._fullSlice[self.spacialDimensions:]))
 		gridPerm, gridSlice = TensorFieldElement._createPermutationList(
 			gridSettingRule,
 			other.spacialDimensions,
-			self._fullSlice[:self.spacialDimensions])
+			list(self._fullSlice[:self.spacialDimensions]))
 
 		for i in range(len(tensorPerm)):
 			tensorPerm[i] += len(gridPerm)

@@ -1,4 +1,4 @@
-from tensor_elements import *
+from elements import *
 import numpy as np
 
 verbose = True

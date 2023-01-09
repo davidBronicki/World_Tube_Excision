@@ -5,12 +5,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.animation as animation
 import time
 
-import tensor_elements as elements
-import frames
-import fields
-import state_bundle as bundles
-
-from typing import List
+import elements, frames, fields, grids, bundles
 
 def scalar_field(
 	N = 8,
@@ -19,11 +14,6 @@ def scalar_field(
 	dt = 0.1,
 	display_dx = 0.1):
 
-	t0 = time.time()
-
-	xData = np.arange(-1., 1. + display_dx / 2, display_dx)
-	yData = np.arange(-1., 1. + display_dx / 2, display_dx)
-	meshX, meshY = np.meshgrid(xData, yData)
 	tData = np.arange(0, simDuration, dt)
 
 	###############################################################
@@ -33,8 +23,8 @@ def scalar_field(
 	globalFrame = frames.CoordinateFrame('global', 2)
 	globalToGlobal = globalFrame.getIdentityTransform()
 
-	centralGrid = fields.GridElement((N, N), globalFrame)
-	grid = fields.Grid([globalToGlobal], [centralGrid])
+	centralGrid = grids.GridElement((N, N), globalFrame)
+	grid = grids.Grid([globalToGlobal], [centralGrid])
 
 	###############################################################
 	##################        metric data        ##################
@@ -158,25 +148,80 @@ def scalar_field(
 		stateDot, [tData[0], tData[-1]], initStateVector, dense_output=True)
 
 	t2 = time.time()
-	print(t2 - t1)
+	print("simulation completed in " + str(t2 - t1) + " seconds")
+	t1 = t2
 
 	outputDataSet = np.zeros((len(tData), len(initStateVector)))
 
 	for i in range(len(tData)):
 		outputDataSet[i] = solutionSet.sol(tData[i])
 
-	currentState.canonicalUnpack(outputDataSet[i])
-	phiField = currentState.tensorFields[3]
-	piField = currentState.tensorFields[4]
-	gammaField = currentState.tensorFields[5]
+	solver_tData = solutionSet.t
+	dtList = []
+	for i in range(1, len(solver_tData)):
+		dtList.append(solver_tData[i] - solver_tData[i - 1])
+	print("average deltaT: " + str(sum(dtList) / len(dtList)))
 
-	print(phiField.elements[0].data)
-	print(piField.elements[0].data)
-	print(gammaField.elements[0].data[:,:,0])
-	print(gammaField.elements[0].data[:,:,1])
+	# tData = solutionSet.t
+	# yDataSet = np.transpose(solutionSet.y)
+	phiDataSet = []
+	# piDataSet = []
+	# gamma_xDataSet = []
+	# gamma_yDataSet = []
 
+	chebEngine = elements.ChebEngine(N)
+	engines = [chebEngine, chebEngine]
 
+	xData = np.arange(-1., 1. + display_dx / 2, display_dx)
+	yData = np.arange(-1., 1. + display_dx / 2, display_dx)
+	meshX, meshY = np.meshgrid(xData, yData)
+	preComputedArray = elements.PreCompute(engines, [xData, yData])
 
-scalar_field(
-	N=24,
-	simDuration=3.)
+	for outputData in outputDataSet:
+		currentState.canonicalUnpack(outputData)
+
+		# metricField = currentState.tensorFields[0]
+		# invMetricField = currentState.tensorFields[1]
+		# christoffelField = currentState.tensorFields[2]
+		phiField = currentState.tensorFields[3]
+		# piField = currentState.tensorFields[4]
+		# gammaField = currentState.tensorFields[5]
+
+		phiFunct = phiField.elements[0].toFunction()
+		phiData = np.zeros((len(xData), len(yData)))
+		for i in range(len(xData)):
+			for j in range(len(yData)):
+				phiData[i][j] = phiFunct(np.array([i, j]), preComputedArray)
+		phiDataSet.append(phiData)
+
+	t2 = time.time()
+	print("data evaluated in " + str(t2 - t1) + " seconds")
+	t1 = t2
+
+	minVal = -1.
+	maxVal = 1.
+
+	fig = plt.figure()
+	# ax = fig.add_subplot(111, projection='3d')
+	ax = fig.add_subplot(111,
+		projection='3d',
+		autoscale_on=False,
+		xlim=(-1., 1.),
+		ylim=(-1., 1.),
+		zlim=(minVal-0.01, maxVal+0.01))
+	plot = ax.plot_surface(meshX,meshY,phiDataSet[0])
+
+	def animate(frame):
+		ax.collections.clear()
+		plot = ax.plot_surface(meshX,meshY,phiDataSet[frame], color='blue')
+	
+	ani = animation.FuncAnimation(
+		fig, animate, len(tData),
+		interval = animationDuration * 1000 / len(tData)
+	)
+	plt.show()
+
+if __name__ == '__main__':
+	scalar_field(
+		N=24,
+		simDuration=3.)

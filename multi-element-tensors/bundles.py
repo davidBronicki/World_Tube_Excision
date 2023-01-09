@@ -1,13 +1,13 @@
-import fields
-import tensor_elements as elements
+import fields, grids
+import elements
 import numpy as np
 from typing import List
 
 class InterfaceBundle:
 	def __init__(self,
-		gridInterface: fields.GridInterface,
-		leftTensorElements: elements.TensorFieldElement,
-		rightTensorElements: elements.TensorFieldElement):
+		gridInterface: grids.GridInterface,
+		leftTensorElements: List[elements.TensorFieldElement],
+		rightTensorElements: List[elements.TensorFieldElement]):
 
 		self.gridInterface = gridInterface
 		self.leftTensorElements = leftTensorElements
@@ -15,7 +15,7 @@ class InterfaceBundle:
 
 class BoundaryBundle:
 	def __init__(self,
-		gridBoundary: fields.GridBoundary,
+		gridBoundary: grids.GridBoundary,
 		tensorElements: List[elements.TensorFieldElement]):
 
 		self.gridBoundary = gridBoundary
@@ -35,7 +35,7 @@ class StateBundle:
 		self.boundaries: List[BoundaryBundle] = []
 		self.interfaces: List[InterfaceBundle] = []
 
-		def getBoundaryElements(gridBoundary: fields.GridBoundary):
+		def getBoundaryElements(gridBoundary: grids.GridBoundary):
 			elementIndex = gridBoundary.baseElement.index
 			axis = gridBoundary.axis
 			isRightBoundary = gridBoundary.isRightBoundary
@@ -47,8 +47,8 @@ class StateBundle:
 				gridBoundary,
 				getBoundaryElements(gridBoundary)))
 		for gridInterface in self.grid.interfaces:
-			leftGridBoundary = gridInterface.leftBoundary
-			rightGridBoundary = gridInterface.rightBoundary
+			leftGridBoundary = gridInterface.leftGridBoundary
+			rightGridBoundary = gridInterface.rightGridBoundary
 			leftBoundaryElements = getBoundaryElements(leftGridBoundary)
 			rightBoundaryElements = getBoundaryElements(rightGridBoundary)
 
@@ -82,8 +82,7 @@ class StateBundle:
 			if i not in staticFieldIndices:
 				dynamicFieldIndices.append(i)
 				fieldPackSizes.append(self.tensorFields[i]._canonicalPackSize())
-		totalPoints = sum(fieldPackSizes)
-		assert(totalPoints == len(newData)), 'data cannot be unpacked, wrong length'
+		assert(sum(fieldPackSizes) == len(newData)), 'data cannot be unpacked, wrong length'
 		currentIndex = 0
 		for i, packSize in zip(dynamicFieldIndices, fieldPackSizes):
 			nextIndex = currentIndex + packSize
